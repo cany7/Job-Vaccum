@@ -1,0 +1,19 @@
+.DS_Store
+.venv/
+node_modules/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+release/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+tmp/
+
+# Local development instructions and design documents
+/AGENTS.md
+/dev-docs/
