@@ -35,4 +35,7 @@ export const channels = {
   status: "app:status",
   ping: "app:ping",
   diagnostics: "app:diagnostics",
+  appInfo: "app:info",
+  quit: "app:quit",
+  showDataFolder: "app:show-data-folder",
 } as const;

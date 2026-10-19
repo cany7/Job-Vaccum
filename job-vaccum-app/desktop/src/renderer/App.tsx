@@ -1,68 +1,35 @@
-import { FormEvent, ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import {
-  ApiError,
-  ApiResult,
-  AppStatus,
-  ConnectionState,
-  Diagnostics,
-  JobVaccumApi,
-  call,
-} from "./api";
+import { useEffect, useState, type ReactNode } from "react";
+import type { AppInfo, ConnectionState, JobVaccumApi } from "./api";
+import { BackendStopped, StartupFailure } from "./Failure";
+import { JobsIcon, SearchIcon, SettingsIcon, ShortlistIcon, SidebarIcon } from "./icons";
+import { useNarrow, usePrefs } from "./prefs";
+import { Settings } from "./Settings";
 
-const PING_MAX_LENGTH = 256;
-
-interface RequestState<T> {
-  loading: boolean;
-  data?: T;
-  dataAt?: number;
-  ms?: number;
-  error?: ApiError;
-}
-
-/** One request slot; a newer call supersedes the response of an older one. */
-function useRequest<T, A extends unknown[]>(request: (...args: A) => Promise<ApiResult<T>>) {
-  const [state, setState] = useState<RequestState<T>>({ loading: false });
-  const sequence = useRef(0);
-  const run = useCallback(
-    async (...args: A) => {
-      const id = ++sequence.current;
-      setState((previous) => ({ ...previous, loading: true }));
-      const started = performance.now();
-      const response = await call(() => request(...args));
-      if (id !== sequence.current) return;
-      const ms = Math.round(performance.now() - started);
-      setState((previous) =>
-        response.ok
-          ? { loading: false, data: response.result, dataAt: Date.now(), ms }
-          : { loading: false, data: previous.data, dataAt: previous.dataAt, ms, error: response.error },
-      );
-    },
-    [request],
-  );
-  return [state, run] as const;
-}
+type Page = "jobs" | "shortlist" | "settings";
+const pageNames: Record<Page, string> = { jobs: "Jobs", shortlist: "Shortlist", settings: "Settings" };
 
 export function App() {
   const api = window.jobVaccum;
   if (!api) {
     return (
-      <div className="fatal">
-        <div className="fatal-panel" role="alert">
-          <h1>Desktop bridge unavailable</h1>
-          <p>
-            The interface could not reach the Job Vaccum desktop process, so it cannot talk to the
-            local backend. Open Job Vaccum from the application instead of a web browser.
+      <div className="failure-window">
+        <div className="drag-strip" />
+        <main className="failure" role="alert">
+          <h1>Open Job Vaccum from the application</h1>
+          <p className="failure-reason">
+            This window can't reach the Job Vaccum desktop process, so it can't use the local backend.
           </p>
-        </div>
+        </main>
       </div>
     );
   }
-  return <Dashboard api={api} />;
+  return <Root api={api} />;
 }
 
-function Dashboard({ api }: { api: JobVaccumApi }) {
+function Root({ api }: { api: JobVaccumApi }) {
   const [connection, setConnection] = useState<ConnectionState | null>(null);
-  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [info, setInfo] = useState<AppInfo | null>(null);
+  const [prefs, updatePrefs] = usePrefs();
 
   useEffect(() => {
     let received = false;
@@ -74,340 +41,172 @@ function Dashboard({ api }: { api: JobVaccumApi }) {
       (state) => {
         if (!received) setConnection(state);
       },
-      (error: unknown) => setConnectionError(error instanceof Error ? error.message : String(error)),
+      (error: unknown) => setConnection({ phase: "failed", message: error instanceof Error ? error.message : String(error) }),
     );
+    api.getAppInfo().then(setInfo, () => setInfo(null));
     return unsubscribe;
   }, [api]);
 
-  const getStatus = useCallback(() => api.getStatus(), [api]);
-  const ping = useCallback((message: string) => api.ping(message), [api]);
-  const getDiagnostics = useCallback(() => api.getDiagnostics(), [api]);
-  const [status, refreshStatus] = useRequest(getStatus);
-  const [pingState, sendPing] = useRequest(ping);
-  const [diagnostics, runDiagnostics] = useRequest(getDiagnostics);
+  if (connection?.phase === "failed") return <StartupFailure api={api} message={connection.message} info={info} />;
+  return <Shell api={api} connection={connection} info={info} prefs={prefs} updatePrefs={updatePrefs} />;
+}
 
-  const ready = connection?.phase === "ready";
+function Shell({
+  api,
+  connection,
+  info,
+  prefs,
+  updatePrefs,
+}: {
+  api: JobVaccumApi;
+  connection: ConnectionState | null;
+  info: AppInfo | null;
+  prefs: ReturnType<typeof usePrefs>[0];
+  updatePrefs: ReturnType<typeof usePrefs>[1];
+}) {
+  const [page, setPage] = useState<Page>("jobs");
+  const narrow = useNarrow();
+  // Narrow windows collapse automatically without changing the preference; expanding
+  // there lasts until the window widens. Every manual toggle saves the preference.
+  const [expandedWhileNarrow, setExpandedWhileNarrow] = useState(false);
   useEffect(() => {
-    if (ready) void refreshStatus();
-  }, [ready, refreshStatus]);
+    if (!narrow) setExpandedWhileNarrow(false);
+  }, [narrow]);
+  const collapsed = narrow ? !expandedWhileNarrow : prefs.sidebarCollapsed;
+  const stopped = connection?.phase === "exited" ? connection : null;
+
+  const toggleSidebar = () => {
+    updatePrefs({ sidebarCollapsed: !collapsed });
+    if (narrow) setExpandedWhileNarrow(collapsed);
+  };
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.ctrlKey && event.metaKey && !event.altKey && !event.shiftKey && event.code === "KeyS") {
+        event.preventDefault();
+        if (!stopped) toggleSidebar();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   return (
-    <div className="app">
-      <header className="toolbar">
-        <div className="toolbar-title">
-          <span className="app-name">Job Vaccum</span>
-          <span className="toolbar-subtitle">Backend</span>
+    <div className="shell" data-sidebar={collapsed ? "collapsed" : "expanded"}>
+      <header className="topbar">
+        <div className="topbar-lead">
+          <button
+            type="button"
+            className="icon-button"
+            onClick={toggleSidebar}
+            disabled={stopped !== null}
+            aria-label={collapsed ? "Show sidebar" : "Hide sidebar"}
+            aria-expanded={!collapsed}
+            aria-controls="sidebar"
+            title={`${collapsed ? "Show" : "Hide"} sidebar (⌃⌘S)`}
+          >
+            <SidebarIcon />
+          </button>
         </div>
-        <ConnectionPill connection={connection} failed={connectionError !== null} />
-        <button
-          type="button"
-          className="button"
-          onClick={() => void refreshStatus()}
-          disabled={!ready || status.loading}
-        >
-          {status.loading ? "Refreshing…" : "Refresh status"}
-        </button>
+        <h1 className="page-title">{pageNames[page]}</h1>
+        <div className="topbar-actions" />
       </header>
-
-      <main className="content">
-        <ConnectionBanner connection={connection} connectionError={connectionError} />
-        <div className="grid">
-          <div className="column">
-            <ConnectionCard connection={connection} />
-            <PingCard state={pingState} ready={ready} onSend={sendPing} />
-          </div>
-          <div className="column">
-            <StatusCard state={status} ready={ready} />
-          </div>
-          <DiagnosticsCard state={diagnostics} ready={ready} onRun={runDiagnostics} />
-        </div>
+      <Sidebar collapsed={collapsed} page={page} onNavigate={setPage} connection={connection} inert={stopped !== null} />
+      <main className="card" aria-label={pageNames[page]}>
+        {stopped ? (
+          <BackendStopped api={api} state={stopped} />
+        ) : page === "settings" ? (
+          <Settings api={api} connection={connection} info={info} prefs={prefs} updatePrefs={updatePrefs} />
+        ) : page === "jobs" ? (
+          <Empty icon={<JobsIcon size={28} />} title="No jobs yet">
+            Jobs appear here after your first run.
+          </Empty>
+        ) : (
+          <Empty icon={<ShortlistIcon size={28} />} title="Your Shortlist is empty">
+            Select jobs in Jobs, then click Add to Shortlist.
+          </Empty>
+        )}
       </main>
     </div>
   );
 }
 
-function phaseLabel(connection: ConnectionState | null, failed: boolean) {
-  if (failed) return { tone: "error", label: "Unavailable" };
+function statusOf(connection: ConnectionState | null) {
   switch (connection?.phase) {
-    case undefined:
-      return { tone: "pending", label: "Connecting…" };
-    case "starting":
-      return { tone: "pending", label: "Starting…" };
     case "ready":
-      return { tone: "ok", label: "Connected" };
-    case "failed":
-      return { tone: "error", label: "Failed to start" };
+      return { tone: "ok", text: "Backend ready" };
     case "exited":
-      return { tone: "error", label: "Stopped" };
+      return { tone: "error", text: "Backend stopped" };
+    case "failed":
+      return { tone: "error", text: "Backend failed" };
+    default:
+      return { tone: "pending", text: "Starting backend…" };
   }
 }
 
-function ConnectionPill({ connection, failed }: { connection: ConnectionState | null; failed: boolean }) {
-  const { tone, label } = phaseLabel(connection, failed);
-  return (
-    <span className="pill" data-tone={tone} role="status" aria-live="polite">
-      <span className="dot" aria-hidden="true" />
-      {label}
-    </span>
-  );
-}
-
-function ConnectionBanner({
+function Sidebar({
+  collapsed,
+  page,
+  onNavigate,
   connection,
-  connectionError,
+  inert,
 }: {
+  collapsed: boolean;
+  page: Page;
+  onNavigate: (page: Page) => void;
   connection: ConnectionState | null;
-  connectionError: string | null;
+  inert: boolean;
 }) {
-  if (connectionError !== null) {
-    return (
-      <Banner title="Could not read the backend state">
-        <p className="mono-wrap">{connectionError}</p>
-      </Banner>
-    );
-  }
-  if (connection?.phase === "failed") {
-    return (
-      <Banner title="The local backend failed to start">
-        <p className="mono-wrap">{connection.message}</p>
-        <p>Resolve the problem above, then quit and reopen Job Vaccum.</p>
-      </Banner>
-    );
-  }
-  if (connection?.phase === "exited") {
-    const detail =
-      connection.signal !== null
-        ? `Stopped by signal ${connection.signal}.`
-        : `Exit code ${connection.exit_code ?? "unknown"}.`;
-    return (
-      <Banner title="The local backend stopped">
-        <p>{detail}</p>
-        {connection.message ? <p className="mono-wrap">{connection.message}</p> : null}
-        <p>Quit and reopen Job Vaccum to reconnect. Saved data is kept.</p>
-      </Banner>
-    );
-  }
-  return null;
-}
-
-function Banner({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="banner" role="alert">
-      <h2>{title}</h2>
-      {children}
-    </div>
-  );
-}
-
-function Card({
-  title,
-  action,
-  wide,
-  children,
-}: {
-  title: string;
-  action?: ReactNode;
-  wide?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <section className={wide ? "card card-wide" : "card"} aria-label={title}>
-      <div className="card-header">
-        <h2>{title}</h2>
-        {action}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function Rows({ rows }: { rows: [string, ReactNode][] }) {
-  return (
-    <dl className="rows">
-      {rows.map(([label, value]) => (
-        <div className="row" key={label}>
-          <dt>{label}</dt>
-          <dd>{value}</dd>
-        </div>
-      ))}
-    </dl>
-  );
-}
-
-function ErrorNote({ error }: { error: ApiError }) {
-  return (
-    <div className="error-note" role="alert">
-      <span className="code">{error.code}</span>
-      <span>
-        {error.message}
-        {error.retryable ? " You can try again." : ""}
-      </span>
-    </div>
-  );
-}
-
-function Meta({ at, ms }: { at?: number; ms?: number }) {
-  if (at === undefined) return null;
-  return (
-    <p className="meta">
-      Updated {new Date(at).toLocaleTimeString()}
-      {ms !== undefined ? ` · ${ms} ms` : ""}
-    </p>
-  );
-}
-
-function Muted({ children }: { children: ReactNode }) {
-  return <p className="muted">{children}</p>;
-}
-
-function ConnectionCard({ connection }: { connection: ConnectionState | null }) {
-  if (connection?.phase !== "ready") {
-    const text =
-      connection === null || connection.phase === "starting"
-        ? "Waiting for the backend handshake…"
-        : "No active connection.";
-    return (
-      <Card title="Connection">
-        <Muted>{text}</Muted>
-      </Card>
-    );
-  }
-  const { ready } = connection;
-  return (
-    <Card title="Connection">
-      <Rows
-        rows={[
-          ["Protocol", `v${ready.protocol_version}`],
-          ["App version", ready.app_version],
-          ["Schema version", String(ready.schema_version)],
-        ]}
-      />
-    </Card>
-  );
-}
-
-function StatusCard({ state, ready }: { state: RequestState<AppStatus>; ready: boolean }) {
-  const { data } = state;
-  return (
-    <Card title="Status">
-      {state.error ? <ErrorNote error={state.error} /> : null}
-      {data ? (
-        <>
-          {!ready ? <Muted>Last known status; the backend is not connected.</Muted> : null}
-          <Rows
-            rows={[
-              ["Active run", data.active_run === null ? "None" : "Running"],
-              ["Operations", data.operations.length === 0 ? "None" : String(data.operations.length)],
-              ["Cleanup", capitalize(data.cleanup.status)],
-              ["Configuration", data.configuration_complete ? "Complete" : "Not configured"],
-              ["Storage", `Schema ${data.storage.schema_version} · ${data.storage.journal_mode.toUpperCase()}`],
-            ]}
-          />
-          <Meta at={state.dataAt} ms={state.ms} />
-        </>
-      ) : state.loading ? (
-        <Muted>Loading status…</Muted>
-      ) : state.error ? null : (
-        <Muted>Available once the backend is connected.</Muted>
-      )}
-    </Card>
-  );
-}
-
-function PingCard({
-  state,
-  ready,
-  onSend,
-}: {
-  state: RequestState<{ message: string }>;
-  ready: boolean;
-  onSend: (message: string) => Promise<void>;
-}) {
-  const [message, setMessage] = useState("hello");
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    void onSend(message);
-  };
-  return (
-    <Card title="Ping">
-      <form className="ping-form" onSubmit={submit}>
-        <label className="field">
-          <span>Message</span>
-          <input
-            value={message}
-            maxLength={PING_MAX_LENGTH}
-            onChange={(event) => setMessage(event.target.value)}
-            spellCheck={false}
-          />
-        </label>
-        <button type="submit" className="button" disabled={!ready || state.loading}>
-          {state.loading ? "Sending…" : "Send ping"}
-        </button>
-      </form>
-      {state.error ? <ErrorNote error={state.error} /> : null}
-      {state.data && !state.error ? (
-        <>
-          <Rows rows={[["Echo", <span className="mono-wrap">{state.data.message || "(empty)"}</span>]]} />
-          <Meta at={state.dataAt} ms={state.ms} />
-        </>
-      ) : null}
-    </Card>
-  );
-}
-
-function DiagnosticsCard({
-  state,
-  ready,
-  onRun,
-}: {
-  state: RequestState<Diagnostics>;
-  ready: boolean;
-  onRun: () => Promise<void>;
-}) {
-  const { data } = state;
-  const action = (
-    <button type="button" className="button" onClick={() => void onRun()} disabled={!ready || state.loading}>
-      {state.loading ? "Running…" : data ? "Run again" : "Run diagnostics"}
+  const status = statusOf(connection);
+  const item = (id: Page, icon: ReactNode) => (
+    <button
+      type="button"
+      className="nav-item"
+      aria-current={page === id ? "page" : undefined}
+      aria-label={collapsed ? pageNames[id] : undefined}
+      title={collapsed ? pageNames[id] : undefined}
+      onClick={() => onNavigate(id)}
+    >
+      {icon}
+      {collapsed ? null : <span className="nav-label">{pageNames[id]}</span>}
     </button>
   );
   return (
-    <Card title="Diagnostics" action={action} wide>
-      {state.error ? <ErrorNote error={state.error} /> : null}
-      {data ? (
-        <>
-          <Rows
-            rows={[
-              ["Python", data.python_version],
-              ["Architecture", data.machine],
-              ["Runtime", data.frozen ? "Bundled" : "Development environment"],
-              ["JobSpy", data.jobspy_version],
-              ["JobSpy commit", <span className="mono-wrap">{data.jobspy_commit}</span>],
-              ["pandas", data.pandas_version],
-              ["curl_cffi", data.curl_cffi_version],
-              ["libcurl", <span className="mono-wrap">{data.curl_version}</span>],
-              ["SQLite", data.sqlite_version],
-              [
-                "Storage check",
-                data.storage.read_write
-                  ? `Read/write passed · schema ${data.storage.schema_version} · ${data.storage.journal_mode.toUpperCase()}`
-                  : "Read/write failed",
-              ],
-            ]}
-          />
-          <Meta at={state.dataAt} ms={state.ms} />
-        </>
-      ) : state.loading ? (
-        <Muted>Running offline checks…</Muted>
+    <aside id="sidebar" className="sidebar" inert={inert}>
+      {/* Search is wired to job data in the list step; until then it is a disabled placeholder. */}
+      {collapsed ? (
+        <button type="button" className="nav-item" disabled aria-label="Search" title="Search (⌘F)">
+          <SearchIcon />
+        </button>
       ) : (
-        <Muted>
-          Checks the backend Python runtime, JobSpy and curl_cffi imports, and a rolled-back SQLite
-          write. No network access.
-        </Muted>
+        <label className="search-field">
+          <SearchIcon />
+          <input type="search" placeholder="Search" aria-label="Search jobs" disabled />
+          <kbd>⌘F</kbd>
+        </label>
       )}
-    </Card>
+      <nav className="nav" aria-label="Main">
+        {item("jobs", <JobsIcon />)}
+        {item("shortlist", <ShortlistIcon />)}
+      </nav>
+      <div className="sidebar-footer">
+        <nav aria-label="Settings">{item("settings", <SettingsIcon />)}</nav>
+        <div className="sidebar-status" data-tone={status.tone} title={collapsed ? status.text : undefined}>
+          <span className="dot" aria-hidden="true" />
+          <span className={collapsed ? "visually-hidden" : undefined} role="status">
+            {status.text}
+          </span>
+        </div>
+      </div>
+    </aside>
   );
 }
 
-function capitalize(value: string) {
-  return value.charAt(0).toUpperCase() + value.slice(1);
+function Empty({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
+  return (
+    <div className="empty">
+      <span className="empty-icon">{icon}</span>
+      <h2>{title}</h2>
+      <p className="muted">{children}</p>
+    </div>
+  );
 }
