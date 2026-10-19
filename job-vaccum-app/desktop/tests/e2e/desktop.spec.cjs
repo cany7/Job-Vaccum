@@ -134,8 +134,12 @@ test('sidebar collapse persists, narrow windows auto-collapse and restore', asyn
     // A manual collapse made in a narrow window is saved and survives widening.
     await resize(application, 1000, 700);
     await expect.poll(() => sidebarWidth(page)).toBe(52);
+    const collapsedToggle = await page.getByRole('button', { name: 'Show sidebar' }).boundingBox();
     await page.getByRole('button', { name: 'Show sidebar' }).click();
     await expect.poll(() => sidebarWidth(page)).toBe(200);
+    // The toggle stays put next to the traffic lights whether expanded or collapsed.
+    const expandedToggle = await page.getByRole('button', { name: 'Hide sidebar' }).boundingBox();
+    expect(Math.round(expandedToggle.x)).toBe(Math.round(collapsedToggle.x));
     await page.getByRole('button', { name: 'Hide sidebar' }).click();
     await expect.poll(() => sidebarWidth(page)).toBe(52);
     await resize(application, 1280, 800);

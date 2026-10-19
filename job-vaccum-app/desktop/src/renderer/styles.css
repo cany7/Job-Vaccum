@@ -304,12 +304,13 @@ dd {
   -webkit-app-region: no-drag;
 }
 
-/* Leaves room for the native traffic lights, which stay in the top bar. */
+/* Leaves room for the native traffic lights, which stay in the top bar. The
+   sidebar toggle sits right after them, in the same place expanded or collapsed. */
 .topbar-lead {
   flex: none;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   width: var(--sidebar-width);
   padding: 0 var(--space-2) 0 84px;
 }
