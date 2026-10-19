@@ -583,10 +583,14 @@ dd {
   color: var(--text);
 }
 
+.search-field:focus-within {
+  outline: 3px solid var(--focus);
+  outline-offset: -1px;
+}
+
 .button:focus-visible,
 .icon-button:focus-visible,
 .nav-item:focus-visible,
-.search-field:focus-within,
 .segment:has(input:focus-visible),
 .swatch:has(input:focus-visible) .swatch-preview {
   outline: 3px solid var(--focus);
@@ -1070,6 +1074,7 @@ dd {
 .search-item[aria-current] {
   color: var(--link);
   font-weight: 600;
+  background: var(--nav-active);
 }
 
 .search-item:focus-visible {
@@ -1594,9 +1599,12 @@ th[aria-sort] .th-button {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
+  /* Room for the focused dot's ring inside the menu label's clipped box. */
+  padding-left: 2px;
 }
 
 .status-dot {
+  flex: none;
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -1674,10 +1682,10 @@ th[aria-sort] .th-button {
   bottom: 0;
   z-index: 3;
   width: min(380px, calc(100% - 48px));
-  border: 1px solid var(--border);
-  border-right: 0;
-  border-radius: var(--radius) 0 0 var(--radius);
+  border-left: 1px solid var(--border);
   box-shadow: -8px 0 24px rgba(0, 0, 0, 0.14);
+  /* Keep the shadow on the left edge only. */
+  clip-path: inset(0 0 0 -40px);
 }
 
 .detail-bar {

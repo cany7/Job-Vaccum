@@ -19,7 +19,7 @@ const ToastContext = createContext<(toast: ToastInput) => void>(() => {});
 export const useToast = () => useContext(ToastContext);
 
 const VISIBLE_MS = 8000;
-const MAX_TOASTS = 3;
+const MAX_TOASTS = 2;
 
 /** Small toasts at the window's lower right; ~8 s, kept while hovered or focused. */
 export function ToastProvider({ children }: { children: ReactNode }) {
