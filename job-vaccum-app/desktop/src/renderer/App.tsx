@@ -66,7 +66,8 @@ function Shell({
 }) {
   const [page, setPage] = useState<Page>("jobs");
   const narrow = useNarrow();
-  // Narrow windows collapse automatically; expanding there lasts until the window widens.
+  // Narrow windows collapse automatically without changing the preference; expanding
+  // there lasts until the window widens. Every manual toggle saves the preference.
   const [expandedWhileNarrow, setExpandedWhileNarrow] = useState(false);
   useEffect(() => {
     if (!narrow) setExpandedWhileNarrow(false);
@@ -75,8 +76,8 @@ function Shell({
   const stopped = connection?.phase === "exited" ? connection : null;
 
   const toggleSidebar = () => {
+    updatePrefs({ sidebarCollapsed: !collapsed });
     if (narrow) setExpandedWhileNarrow(collapsed);
-    else updatePrefs({ sidebarCollapsed: !prefs.sidebarCollapsed });
   };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {

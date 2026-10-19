@@ -122,6 +122,18 @@ test('sidebar collapse persists, narrow windows auto-collapse and restore', asyn
     await resize(application, 1280, 800);
     await expect.poll(() => sidebarWidth(page)).toBe(200);
 
+    // A manual collapse made in a narrow window is saved and survives widening.
+    await resize(application, 1000, 700);
+    await expect.poll(() => sidebarWidth(page)).toBe(52);
+    await page.getByRole('button', { name: 'Show sidebar' }).click();
+    await expect.poll(() => sidebarWidth(page)).toBe(200);
+    await page.getByRole('button', { name: 'Hide sidebar' }).click();
+    await expect.poll(() => sidebarWidth(page)).toBe(52);
+    await resize(application, 1280, 800);
+    await expect.poll(() => sidebarWidth(page)).toBe(52);
+    await page.getByRole('button', { name: 'Show sidebar' }).click();
+    await expect.poll(() => sidebarWidth(page)).toBe(200);
+
     // ⌃⌘S collapses manually; that choice survives widening and a restart.
     await page.keyboard.press('Control+Meta+KeyS');
     await expect.poll(() => sidebarWidth(page)).toBe(52);
