@@ -7,7 +7,7 @@
 - 文档管理：按用户最新要求，AGENTS.md 和 dev-docs/ 从本次提交起纳入 Git；.agents/ 仍本地忽略。下方历史记录中的“开发文档仅本地维护”不再是当前规则。
 
 - M0、M1 已完成；M2 第 1 步（检索后端、运行协议、桌面桥接）已通过 PR #2 合入。M3 后端现已实现实际评分与四协议；M2 的 Runs、手动配置、批次筛选与 M3 Custom/Score/rubric 界面不在本轮范围，后续阶段未完成。
-- 本轮本地验证为 **171 项后端、13 项 Node 测试及类型检查/构建、19 项完整开发版 E2E**；另单独执行 M3 桥接 E2E **1 passed**。历史 PR 的 CI/测试只描述当时版本；本轮远端交付按必需 CI 流程确认。
+- 本轮本地验证为 **172 项后端、13 项 Node 测试及类型检查/构建、19 项完整开发版 E2E**；另单独执行 M3 桥接 E2E **1 passed**。完整 E2E 后追加的取消通知修正已重跑后端及 M3 桥接；历史 PR 的 CI/测试只描述当时版本；本轮远端交付按必需 CI 流程确认。
 - M2 版本尚未重新打包或验收安装副本；之前 M0/M1 安装包记录只证明当时版本。真实网站、真实代理、付费模型、第二台物理 Mac、正式签名与公证仍未验证。既有 E2E request failures / Markdown 场景曾间歇性超时，复验通过，但根因未确认修复。
 - 当前仅两个活动目录：`job-vaccum-gui` 使用 `codex/dev`，`job-vaccum-gui-claude` 使用 `claude/dev-env`；main 无目录签出。默认本地提交，获准推送交付后创建/更新 PR 并开启 auto-merge；必需 CI 通过后合并，不绕过保护。
 - Python/Node 以项目版本文件为准，使用 uv 独立环境与 npm lockfile；不要求 pyenv，也不限制 uv 下载解释器。当前操作命令见下方「启动、测试和构建命令」。
@@ -31,13 +31,15 @@
 
 | 目录 / 实际命令 | 结果 |
 | --- | --- |
-| backend `uv run --locked pytest -q` | 最终 171 passed，19.16 秒；四协议本地 HTTP、错误/空/截断/拒绝/超时/重试/脱敏、共享并发/RPM、205 岗位固定集合、抓取评分重叠、停止/续跑/备注并发、真实接收循环响应先于事件 |
+| backend `uv run --locked pytest -q` | 最终 172 passed，19.09 秒；四协议本地 HTTP、错误/空/截断/拒绝/超时/重试/脱敏、共享并发/RPM、205 岗位固定集合、抓取评分重叠、停止/续跑/备注并发、真实接收循环响应先于事件、满队列取消不阻塞接收循环 |
 | desktop `npm test` | 类型检查/生产构建及 13 Node tests passed；safeStorage 边界使用合成 mock，验证加密不可用、解密失败、重载、删除与不泄露 |
 | desktop `npx --no-install playwright test tests/e2e/scoring.spec.cjs` | 1 passed，7.0 秒；真实 Electron/main/preload/Python 与本地 HTTP，实际 safeStorage 加密、测试、0 分提交及删 Key |
 | desktop `npm run test:e2e -- --trace retain-on-failure` | 19 passed，56.5 秒；原 18 项与新增 M3 链路，未放宽超时/断言，未加入自动重试 |
 | 根目录 `git diff --check` | 通过；renderer diff 为空 |
 
-初次后端回归 114/117 通过，三项失败来自旧 M2 仅登记评分、无 Key 的阶段前提；补入 fake LLM/合成 Key 并更新为评分执行后的断言。新增固定集合用例曾误假设 importer 新增岗位全为 unscored（fixture 自带部分成功分），已改为直接检查 run_jobs 固定集合边界；171 项最终通过。没有修改业务断言以隐藏实现失败。
+初次后端回归 114/117 通过，三项失败来自旧 M2 仅登记评分、无 Key 的阶段前提；补入 fake LLM/合成 Key 并更新为评分执行后的断言。新增固定集合用例曾误假设 importer 新增岗位全为 unscored（fixture 自带部分成功分），已改为直接检查 run_jobs 固定集合边界。收尾复核发现取消未发 future 的通知若同步写满 inbox，可能阻塞其消费线程；改为与 worker 一样异步投递，保留响应先于事件，新增满队列回归。172 项最终通过；随后单独 M3 桥接再次 1 passed，7.7 秒。完整 19 项 E2E 是追加该局部修正前的结果，未宣称再次整套重跑。没有修改业务断言以隐藏实现失败。
+
+本阶段提交 6e9ca06 已推送 codex/dev，并创建 [PR #7](https://github.com/cany7/Job-Vaccum/pull/7)，已附加到当前 Codex chat。该 PR 已开启过 auto-merge；为加入最后的取消通知修正暂时关闭，补丁验证/推送后重新开启。最终必需检查、自动合并及 main CI 结果以 GitHub PR/Actions 与本轮交付报告为准，未绕过保护。
 
 限制：没有用户提供的真实模型/网站/代理条件，未访问真实网站、调用付费模型或读取私人凭据；四协议本地 HTTP 通过不代表全部线上模型兼容。M3 renderer 交互、M4 完整故障注入、M5 AI 引导生成、M6/M7 仍由对应阶段交付。未重新打包或验收安装副本，不沿用 M0/M1 安装结果证明本轮版本。
 

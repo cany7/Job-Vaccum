@@ -240,3 +240,30 @@ def test_local_http_read_timeout_is_controlled(http_server):
             generate(model(base_url=url), 'synthetic-secret', '', 'Prompt', timeout=(0.1, 0.02))
         assert exc.value.error['code'] == 'NETWORK_ERROR' and exc.value.error['retryable']
         assert len(seen) == 1 and 'synthetic-secret' not in str(exc.value)
+
+
+def test_queued_cancellation_never_blocks_receiver_with_full_inbox():
+    inbox, entered, release = queue.Queue(maxsize=1), threading.Event(), threading.Event()
+    def transport(*args):
+        entered.set()
+        assert release.wait(3)
+        return 'OK'
+    pool = LlmPool(inbox, transport=transport, rpm=600000)
+    try:
+        pool.submit('inflight', model(), 'key', '', '', str, threading.Event())
+        assert entered.wait(2)  # llm_attempt now fills the inbox
+        pool.submit('queued', model(), 'key', '', '', str, threading.Event())
+        cancelled = threading.Event()
+        thread = threading.Thread(target=lambda: (pool.cancel('queued'), cancelled.set()), daemon=True)
+        thread.start()
+        assert cancelled.wait(1), 'Cancel blocked the receiver instead of returning'
+        assert inbox.get(timeout=2) == ('llm_attempt', 'inflight')
+        kind, payload = inbox.get(timeout=2)
+        assert kind == 'llm_result' and payload[0] == 'queued' and payload[2]['code'] == 'CANCELLED'
+        pool.complete('queued')
+        release.set()
+        assert inbox.get(timeout=2)[1][0] == 'inflight'
+        pool.complete('inflight')
+    finally:
+        release.set()
+        pool.close()

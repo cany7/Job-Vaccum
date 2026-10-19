@@ -65,8 +65,11 @@ class LlmPool:
             cancel.set()
         future = self.futures.get(token)
         if future and not future.cancelled() and future.cancel():
-            self.inbox.put(('llm_result', (token, None,
-                {'code': 'CANCELLED', 'message': 'Model operation cancelled.', 'retryable': False})))
+            # cancel() runs on the receiver thread. Publish asynchronously, as a
+            # worker does, so a full bounded inbox cannot block its own consumer.
+            result = ('llm_result', (token, None,
+                {'code': 'CANCELLED', 'message': 'Model operation cancelled.', 'retryable': False}))
+            threading.Thread(target=self.inbox.put, args=(result,), name='llm-cancel', daemon=True).start()
 
     def complete(self, token):
         self.cancellations.pop(token, None)
