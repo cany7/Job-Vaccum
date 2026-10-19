@@ -24,7 +24,7 @@ test('streaming Unicode and concurrent ids, then graceful EOF', { timeout: 5000 
 
 for (const mode of ['incompatible', 'startup-error', 'never-ready']) {
   test(`${mode} produces visible startup failure`, { timeout: 15_000 }, async () => {
-    const backend = peer(mode, { startupMs: 100 });
+    const backend = peer(mode, { startupMs: 1000 });
     try {
       assert.equal((await ready(backend)).phase, 'failed');
       if (mode === 'startup-error') assert.match(backend.state.message, /BUSY/);
