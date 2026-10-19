@@ -3,8 +3,8 @@
 Python 3.13 service, UTF-8 JSON Lines on stdin/stdout. Only Python owns
 `app.sqlite3`. Migration 001 creates settings; migration 002 adds jobs,
 identities, directions/queries, job directions and applications. Existing M0
-settings survive migration. M2 adds retrieval and runs (see below); scoring
-execution and scheduling remain later milestones.
+settings survive migration. M2 adds retrieval and runs; M3 adds Custom HTTP
+models and scoring (see below). Scheduling remains a later milestone.
 
 From the repository root:
 
@@ -72,7 +72,10 @@ message, and exit code 2. The data directory being owned returns stderr `BUSY`.
 EOF and SIGTERM close SQLite and release the lock. No shutdown command is added.
 Electron should keep stdin open while its backend is needed; closing the window
 must retain main/service. Explicit Quit closes stdin, waits up to 10 seconds,
-then terminates only its owned process if necessary. CSV exports use a reader thread and finish on EOF; Electron still bounds process shutdown. EOF stops retrieval dispatch and bounds worker shutdown; LLM shutdown remains M3/M4.
+then terminates only its owned process if necessary. CSV exports use a reader thread
+and finish on EOF. EOF stops retrieval/model dispatch and cancels unsent model work;
+in-flight model scores can finish and commit. Electron bounds process shutdown.
+The full shutdown and fault-injection acceptance matrix remains M4 work.
 
 ## M1 data commands
 
@@ -196,8 +199,8 @@ model metadata, proxy mode/address and auto_score_enabled (default true).
 `drafts.get/save/apply` keep edited search/rubric drafts separate from settings.
 Disable automatic scoring to run the complete M2 pipeline without a model.
 When enabled, each new job and its score task are committed together. Score
-tasks contain only job_id; they do not duplicate JD. Execution of those tasks is
-M3 work: the run stays running/scoring until implemented or explicitly stopped.
+tasks contain only job_id; they do not duplicate JD. M3 executes those tasks
+alongside subsequent retrieval, and the run waits for scoring before finishing.
 
 Named methods are `runs.preview/start/list/detail/stop/resume`. Start and resume
 return `{run_id}` before retrieval. `run.updated`, `run.stats` and `jobs.changed`
@@ -237,3 +240,23 @@ filters and exact dedup regression cases follow the engineering documents; old
 implementation parity remains unverified. Tests use public synthetic inputs and
 FakeScraper success/zero/partial/failure/delay modes, with no private config or
 network. Exact command/result/environment records live in DEVELOPMENT-STATUS.
+
+## M3 Custom models and scoring
+
+Four non-streaming `requests` adapters implement Chat Completions, Responses,
+Anthropic Messages and Gemini generateContent. One shared pool applies concurrency
+1 / RPM 10 to connection tests, scores and retries. Optional nulls are omitted;
+zero temperature is sent. Provider bodies and exception text are never exposed
+as errors. Tests use a loopback HTTP server and injected FakeLlm, without keys
+or requests to real providers.
+
+`jobs.score` fixes selected IDs or all FilterSpec matches in a rescore run.
+Successful scores commit immediately; failed re-evaluations keep previous scores
+and timestamps. Automatic scoring only queues new jobs. Stop cancels unsent work
+and saves successful in-flight scores; resume skips committed successes.
+`model.test` tests current or unsaved non-secret model settings; `operations.cancel`
+cancels a test without applying late output. Electron owns safeStorage keys and
+injects them privately, never through ordinary settings. See
+[CONTRACTS](../../dev-docs/CONTRACTS.md#m3-后端协议与桌面桥接2026-10-19)
+for named preload methods, events and frontend integration. This step does not
+implement renderer controls or AI draft generation.

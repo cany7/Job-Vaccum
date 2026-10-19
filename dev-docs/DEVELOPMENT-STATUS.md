@@ -1,18 +1,47 @@
 # 开发状态
 
-最新状态：2026-10-19 M2 第 1 步已合入 main，M2 整阶段未完成。CI 配置通过 PR #3 自动合并，此前 main / codex/dev / claude/dev-env 已同步 c01bdb4（README 通过 PR #4 合入）；本轮 Codex 已同步 PR #5 的 0c3202a，文档纳入 Git 的交付见文末；两个活动工作区分别使用 codex/dev、claude/dev-env。GitHub 必需检查和 auto-merge 已启用，PR 与合并后 main CI 均通过；见文末。
+最新状态：2026-10-19 按用户授权完成 M3 后端、协议、main/preload，本轮未修改 renderer。M2/M3 界面由另一 Agent 并行开发；不能将本轮记为 M3 全阶段完成。开发基线为最新 origin/main fb1e0a6，使用独立 codex/dev 工作区；本轮交付与验证见下节。已获准推送、创建 PR 并开启自动合并。
 
 ## 当前交接摘要（2026-10-19）
 
 - 文档管理：按用户最新要求，AGENTS.md 和 dev-docs/ 从本次提交起纳入 Git；.agents/ 仍本地忽略。下方历史记录中的“开发文档仅本地维护”不再是当前规则。
 
-- M0、M1 已完成；M2 第 1 步（检索后端、运行协议、桌面桥接）已通过 PR #2 合入。M2 的 Runs、手动配置、批次筛选与失效提示界面尚未完成，M3 实际评分及后续阶段未交付；本次文档核对不启动开发阶段。
-- 最近完整开发版 E2E 记录为 PR #2 合并后 **18 passed**；后续 CI 配置与 README 交付的验证为 **117 项后端、12 项 Node 测试及类型检查/构建、5 项 E2E 冒烟**。PR #4 与其合并后 main CI 均通过；不能将五项冒烟写成重新通过全部 E2E。
+- M0、M1 已完成；M2 第 1 步（检索后端、运行协议、桌面桥接）已通过 PR #2 合入。M3 后端现已实现实际评分与四协议；M2 的 Runs、手动配置、批次筛选与 M3 Custom/Score/rubric 界面不在本轮范围，后续阶段未完成。
+- 本轮本地验证为 **172 项后端、13 项 Node 测试及类型检查/构建、19 项完整开发版 E2E**；另单独执行 M3 桥接 E2E **1 passed**。完整 E2E 后追加的取消通知修正已重跑后端及 M3 桥接；历史 PR 的 CI/测试只描述当时版本；本轮远端交付按必需 CI 流程确认。
 - M2 版本尚未重新打包或验收安装副本；之前 M0/M1 安装包记录只证明当时版本。真实网站、真实代理、付费模型、第二台物理 Mac、正式签名与公证仍未验证。既有 E2E request failures / Markdown 场景曾间歇性超时，复验通过，但根因未确认修复。
 - 当前仅两个活动目录：`job-vaccum-gui` 使用 `codex/dev`，`job-vaccum-gui-claude` 使用 `claude/dev-env`；main 无目录签出。默认本地提交，获准推送交付后创建/更新 PR 并开启 auto-merge；必需 CI 通过后合并，不绕过保护。
 - Python/Node 以项目版本文件为准，使用 uv 独立环境与 npm lockfile；不要求 pyenv，也不限制 uv 下载解释器。当前操作命令见下方「启动、测试和构建命令」。
 
 以下为各次交付的历史记录，未按时间完全排序。历史段落中的“当前”“未推送”“未合并”“未完成”、旧分支/目录及旧环境仅描述当时状态；后续已完成事项以上方摘要及相应补验/合并记录为准，保留原始测试结果，不把历史通过写成本轮重验。
+
+## M3 后端、协议与 main/preload（2026-10-19）
+
+用户授权仅 M3 Python 服务、协议及 main/preload，renderer 交由另一 Agent 并行开发，并明确授权推送、PR、开启自动合并。工作区 `/Users/tim77/PycharmProjects/job-vaccum-gui` 的 codex/dev 从干净的最新 origin/main fb1e0a6 开始；未生成额外 worktree、未修改其他 Agent 的目录，未修改 renderer、依赖声明/lockfile、JobSpy SHA 或数据库表。
+
+交付：
+
+- requests 四种直接 HTTP Custom 适配器：原 Base URL 路径、协议后缀及认证头、非流式最终文本、多块输出与 thinking 排除、空值省略/temperature=0、Anthropic 必填上限及 Gemini model ID 校验；无提供商/模型名适配。错误使用受控脱敏消息，HTTP status 单独返回，不存原始响应。
+- 一个 service LLM 线程池/全局不突发限速门，默认并发 1、RPM 10；10/120 秒连接/读取超时、三次预算、5/10 秒退避及可取消的 Retry-After 秒数。连接测试与每次评分/重试共用；fake LLM 只作为测试依赖，可成功、无效、失败或延迟。
+- 复用 M2 待评分任务，批次入库后评分与后续抓取重叠；本轮一岗位一任务，只读取固定主体 title/company/description 与运行快照 rubric，不复制 JD、不跨岗位复用。同输入不同 job 仍各自请求。自动评分关闭仍正常完成，历史命中不补评。
+- jobs.score 接收去重 1..200 job_ids 或完整 FilterSpec，创建时固定全部匹配集合（验证超过一页）；建立 rescore，与 pipeline 共用互斥。0 分正常成功；重评失败保留旧分/理由/时间/模型。评分只写评分字段，运行中状态/备注修改保留。
+- model.test 支持未保存的非敏感模型字段；operations.cancel 取消排队/等待/重试，已发测试结果丢弃，仍占并发直到结束。评分 stop 保存在途成功结果，取消未发任务；resume 跳过成功任务，使用原快照和修正 Key；基础重启恢复回归通过，M4 全故障矩阵仍未交付。
+- main safeStorage 加密 model-key.enc（0600），不可用或解密失败清楚报错，无明文回退；私有 internal.credentials 按字段更新模型 Key/代理凭据，不互相清除。新增 preload scoreJobs/testModel/cancelOperation/setModelKey/deleteModelKey，public 仅 has_key。CONTRACTS 已写出命令、事件、输入/错误和前端接法；模型测试成功用 model.test.completed，避免已有 CSV operation.completed 消费方误认导出。
+
+实际验证环境：macOS 27.0.1（26A434）arm64，Python 3.13.12（uv 独立 .venv）、SQLite 3.54.0、uv 0.13.1、Node 26.12.0、npm 11.20.0、Electron 44.9.0。未重装或升级依赖。
+
+| 目录 / 实际命令 | 结果 |
+| --- | --- |
+| backend `uv run --locked pytest -q` | 最终 172 passed，19.09 秒；四协议本地 HTTP、错误/空/截断/拒绝/超时/重试/脱敏、共享并发/RPM、205 岗位固定集合、抓取评分重叠、停止/续跑/备注并发、真实接收循环响应先于事件、满队列取消不阻塞接收循环 |
+| desktop `npm test` | 类型检查/生产构建及 13 Node tests passed；safeStorage 边界使用合成 mock，验证加密不可用、解密失败、重载、删除与不泄露 |
+| desktop `npx --no-install playwright test tests/e2e/scoring.spec.cjs` | 1 passed，7.0 秒；真实 Electron/main/preload/Python 与本地 HTTP，实际 safeStorage 加密、测试、0 分提交及删 Key |
+| desktop `npm run test:e2e -- --trace retain-on-failure` | 19 passed，56.5 秒；原 18 项与新增 M3 链路，未放宽超时/断言，未加入自动重试 |
+| 根目录 `git diff --check` | 通过；renderer diff 为空 |
+
+初次后端回归 114/117 通过，三项失败来自旧 M2 仅登记评分、无 Key 的阶段前提；补入 fake LLM/合成 Key 并更新为评分执行后的断言。新增固定集合用例曾误假设 importer 新增岗位全为 unscored（fixture 自带部分成功分），已改为直接检查 run_jobs 固定集合边界。收尾复核发现取消未发 future 的通知若同步写满 inbox，可能阻塞其消费线程；改为与 worker 一样异步投递，保留响应先于事件，新增满队列回归。172 项最终通过；随后单独 M3 桥接再次 1 passed，7.7 秒。完整 19 项 E2E 是追加该局部修正前的结果，未宣称再次整套重跑。没有修改业务断言以隐藏实现失败。
+
+本阶段提交 6e9ca06 已推送 codex/dev，并创建 [PR #7](https://github.com/cany7/Job-Vaccum/pull/7)，已附加到当前 Codex chat。该 PR 已开启过 auto-merge；为加入最后的取消通知修正暂时关闭，补丁验证/推送后重新开启。最终必需检查、自动合并及 main CI 结果以 GitHub PR/Actions 与本轮交付报告为准，未绕过保护。
+
+限制：没有用户提供的真实模型/网站/代理条件，未访问真实网站、调用付费模型或读取私人凭据；四协议本地 HTTP 通过不代表全部线上模型兼容。M3 renderer 交互、M4 完整故障注入、M5 AI 引导生成、M6/M7 仍由对应阶段交付。未重新打包或验收安装副本，不沿用 M0/M1 安装结果证明本轮版本。
 
 ## 环境准备后的修复同步与复验（2026-10-19）
 

@@ -92,6 +92,7 @@ test('shell, About with real backend, close/reopen, single instance and Quit', {
       'removeApplications', 'reorderDirections', 'restoreApplications', 'saveDirection', 'saveQuery',
       'applyDraft', 'deleteProxyCredential', 'getDraft', 'getRunDetail', 'listRuns', 'previewRun',
       'resumeRun', 'saveDraft', 'setProxyCredential', 'startRun', 'stopRun',
+      'scoreJobs', 'testModel', 'cancelOperation', 'setModelKey', 'deleteModelKey',
       'saveSettings', 'setApplicationStatus', 'showCsvInFinder', 'showDataFolder', 'updateApplication',
     ].sort());
     expect(await page.evaluate(() => window.jobVaccum.ping('M1 中文 🙂'))).toEqual({ ok: true, result: { message: 'M1 中文 🙂' } });

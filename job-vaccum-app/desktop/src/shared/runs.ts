@@ -1,5 +1,6 @@
 import type { ApiError, ApiResult } from './api';
 import type { Direction } from './business';
+import type { FilterSpec, Sort } from './business';
 
 export type Platform = 'linkedin' | 'indeed';
 export interface City { id: string; location: string; distance_miles: number; enabled: boolean }
@@ -56,6 +57,11 @@ export type RunTask = { id: string; run_id: string; stable_order: number; status
 export interface RunDetail extends RunSummary { config_snapshot: RunSnapshot; tasks: RunTask[]; task_total: number;
   jobs: { job_id: string; is_new: boolean }[] }
 export interface RunsApi {
+  scoreJobs(params: { job_ids: string[]; filter?: never } | { filter: FilterSpec & { sort?: Sort }; job_ids?: never }): Promise<ApiResult<{ run_id: string; job_count: number }>>;
+  testModel(params?: { model?: ModelConfig }): Promise<ApiResult<{ operation_id: string }>>;
+  cancelOperation(params: { operation_id: string }): Promise<ApiResult<{ operation_id: string }>>;
+  setModelKey(params: { key: string }): Promise<ApiResult<{ has_key: boolean }>>;
+  deleteModelKey(): Promise<ApiResult<{ has_key: boolean }>>;
   getDraft(params: { draft_kind: DraftKind }): Promise<ApiResult<Draft>>;
   saveDraft(params: SaveDraft): Promise<ApiResult<Draft>>;
   applyDraft(params: { draft_kind: DraftKind }): Promise<ApiResult<Draft>>;

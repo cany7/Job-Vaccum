@@ -6,6 +6,7 @@ import type { ApiResult, ServiceEvent } from '../shared/api';
 import { businessMethods } from '../shared/protocol';
 import type { Backend } from './backend';
 import { proxyCredentials } from './proxy-credentials';
+import { modelCredentials } from './model-credentials';
 
 const invalid = (message: string): ApiResult<never> => ({ ok: false, error: { code: 'VALIDATION_ERROR', message, retryable: false } });
 
@@ -28,6 +29,15 @@ async function resolveCsvDestination(dataDir: string, destination: string): Prom
 export function registerBusinessIpc(backend: Backend, getWindow: () => BrowserWindow | null,
   assertSender: (event: IpcMainInvokeEvent) => void, dataDir: string) {
   const credentials = proxyCredentials(backend, dataDir);
+  const modelKey = modelCredentials(backend, dataDir);
+  ipcMain.handle('credentials:set-model-key', (event, params: { key: string }) => {
+    assertSender(event);
+    return modelKey.set(params);
+  });
+  ipcMain.handle('credentials:delete-model-key', (event) => {
+    assertSender(event);
+    return modelKey.delete();
+  });
   ipcMain.handle('credentials:set-proxy', (event, params: { url: string }) => {
     assertSender(event);
     return credentials.set(params);
@@ -44,6 +54,10 @@ export function registerBusinessIpc(backend: Backend, getWindow: () => BrowserWi
       if (method === 'dev.import_synthetic' && app.isPackaged) return invalid('Synthetic fixtures are available only in development.');
       if (['runs.start', 'runs.resume', 'runs.preview', 'settings.get'].includes(method)) {
         const injected = await credentials.inject();
+        if (!injected.ok) return injected;
+      }
+      if (['runs.start', 'runs.resume', 'runs.preview', 'settings.get', 'jobs.score', 'model.test'].includes(method)) {
+        const injected = await modelKey.inject();
         if (!injected.ok) return injected;
       }
       return backend.request(method, params);
