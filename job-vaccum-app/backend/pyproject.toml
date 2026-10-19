@@ -20,9 +20,6 @@ job_vaccum = ["storage/migrations/*.sql"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
-[tool.uv]
-python-downloads = "never"
-
 [tool.uv.sources]
 python-jobspy = { git = "https://github.com/speedyapply/JobSpy.git", rev = "1988484ac76ff9ae57784750346842e967e8ba10" }
 
