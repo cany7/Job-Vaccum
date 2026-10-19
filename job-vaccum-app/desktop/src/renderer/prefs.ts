@@ -10,6 +10,8 @@ export interface UiPrefs {
   lightTheme: Theme;
   darkTheme: Theme;
   sidebarCollapsed: boolean;
+  /** Details panel width in px, shared by both pages, docked or floating. */
+  detailWidth: number;
   /** Each list page remembers its own filters, sort, rows per page and columns. */
   lists: Record<ListPage, ListPrefs>;
 }
@@ -18,6 +20,8 @@ export const themes: Theme[] = ["graphite", "pine", "ink"];
 const modes: Mode[] = ["system", "light", "dark"];
 const KEY = "jobVaccum.ui";
 const defaults = { mode: "system", lightTheme: "graphite", darkTheme: "graphite" } as const;
+export const DETAIL_MIN = 320;
+export const DETAIL_DEFAULT = 360;
 
 export function readPrefs(): UiPrefs {
   let stored: Partial<Record<keyof UiPrefs, unknown>> = {};
@@ -35,6 +39,10 @@ export function readPrefs(): UiPrefs {
     lightTheme: pick(stored.lightTheme, themes, defaults.lightTheme),
     darkTheme: pick(stored.darkTheme, themes, defaults.darkTheme),
     sidebarCollapsed: stored.sidebarCollapsed === true,
+    detailWidth:
+      typeof stored.detailWidth === "number" && Number.isFinite(stored.detailWidth)
+        ? Math.max(DETAIL_MIN, Math.round(stored.detailWidth))
+        : DETAIL_DEFAULT,
     lists: {
       jobs: readListPrefs("jobs", (stored.lists as Record<string, unknown> | undefined)?.jobs),
       shortlist: readListPrefs("shortlist", (stored.lists as Record<string, unknown> | undefined)?.shortlist),

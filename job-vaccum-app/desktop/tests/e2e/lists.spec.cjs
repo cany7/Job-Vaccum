@@ -491,6 +491,33 @@ test('columns, horizontal scroll, narrow details and toast timing', async () => 
     await expect(view(page).locator('thead th[scope="col"] .th-label')).toHaveText(['Score', 'Role', 'Company', 'Why', 'Searches', 'Location', 'Posted']);
     expect(await header(page, 'Role').evaluate(el => Math.round(el.getBoundingClientRect().width))).toBe(240);
 
+    // The details panel resizes from its left edge, never below 320 px, and the
+    // same width is used docked and floating.
+    await rows(page).nth(2).locator('.cell-company').click();
+    const panel = view(page).locator('.detail');
+    await expect(panel).toBeVisible();
+    expect(await panel.evaluate(el => Math.round(el.getBoundingClientRect().width))).toBe(360);
+    const edge = await view(page).locator('.detail-resize').boundingBox();
+    await page.mouse.move(edge.x + 3, edge.y + 200);
+    await page.mouse.down();
+    await page.mouse.move(edge.x - 97, edge.y + 200, { steps: 4 });
+    await page.mouse.up();
+    await expect.poll(() => panel.evaluate(el => Math.round(el.getBoundingClientRect().width))).toBe(460);
+    await resize(application, 1000, 700);
+    await expect(view(page).locator('.detail-overlay')).toBeVisible();
+    expect(await panel.evaluate(el => Math.round(el.getBoundingClientRect().width))).toBe(460);
+    await resize(application, 1280, 800);
+    const edge2 = await view(page).locator('.detail-resize').boundingBox();
+    await page.mouse.move(edge2.x + 3, edge2.y + 200);
+    await page.mouse.down();
+    await page.mouse.move(edge2.x + 400, edge2.y + 200, { steps: 4 });
+    await page.mouse.up();
+    await expect.poll(() => panel.evaluate(el => Math.round(el.getBoundingClientRect().width))).toBe(320);
+    await view(page).locator('.detail-resize').dblclick();
+    await expect.poll(() => panel.evaluate(el => Math.round(el.getBoundingClientRect().width))).toBe(360);
+    await page.keyboard.press('Escape');
+    await expect(panel).toHaveCount(0);
+
     // Toasts leave after about 8 seconds.
     await page.mouse.move(10, 400);
     await rows(page).nth(1).getByRole('checkbox').check();

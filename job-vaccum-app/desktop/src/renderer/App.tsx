@@ -293,6 +293,8 @@ function Shell({
                     active={page === list}
                     prefs={prefs.lists[list]}
                     update={(change) => updateList(updatePrefs, list, change)}
+                    detailWidth={prefs.detailWidth}
+                    onDetailWidth={(detailWidth) => updatePrefs({ detailWidth })}
                     slots={slots}
                     onEditSearch={focusSearch}
                   />

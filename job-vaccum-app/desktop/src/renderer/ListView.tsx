@@ -52,11 +52,15 @@ export function ListView({
   update,
   slots,
   onEditSearch,
+  detailWidth,
+  onDetailWidth,
 }: {
   page: ListPage;
   active: boolean;
   prefs: ListPrefs;
   update: (change: Partial<ListPrefs>) => void;
+  detailWidth: number;
+  onDetailWidth: (width: number) => void;
   slots: TopbarSlots;
   onEditSearch: () => void;
 }) {
@@ -645,6 +649,8 @@ export function ListView({
             loading={detail.loading}
             error={detail.error}
             overlay={narrow}
+            width={detailWidth}
+            onWidth={onDetailWidth}
             hasPrevious={currentIndexNow > 0}
             hasNext={currentIndexNow >= 0 && currentIndexNow < items.length - 1}
             adding={busy}

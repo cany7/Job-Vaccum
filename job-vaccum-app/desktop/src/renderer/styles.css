@@ -1666,8 +1666,11 @@ th[aria-sort] .th-button {
 
 /* Details: a column beside the list, or a floating panel in narrow windows. */
 .detail {
+  position: relative;
   flex: none;
-  width: 360px;
+  /* Width is the user's saved value, kept below 60% of the list area. */
+  width: min(var(--detail-width, 360px), 60%);
+  min-width: min(320px, 100%);
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -1681,11 +1684,28 @@ th[aria-sort] .th-button {
   right: 0;
   bottom: 0;
   z-index: 3;
-  width: min(380px, calc(100% - 48px));
+  width: min(var(--detail-width, 360px), calc(100% - 48px));
   border-left: 1px solid var(--border);
   box-shadow: -8px 0 24px rgba(0, 0, 0, 0.14);
   /* Keep the shadow on the left edge only. */
   clip-path: inset(0 0 0 -40px);
+}
+
+.detail-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  z-index: 4;
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.detail-resize:hover,
+.detail-resize:focus-visible {
+  outline: none;
+  background: linear-gradient(to right, transparent 2px, var(--focus) 2px, var(--focus) 4px, transparent 4px);
 }
 
 .detail-bar {

@@ -1,10 +1,21 @@
 import MarkdownIt from "markdown-it";
-import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
 import type { ApiError, ApplicationStatus, JobDetail } from "./api";
 import { formatDay, formatPosted, formatSalary, formatTime, jobTypeLabel, siteLabel } from "./format";
 import { ArrowDown, ArrowUp, CheckIcon, CloseIcon, ExternalIcon } from "./icons";
 import { ScoreChip, StatusPicker } from "./JobTable";
 import type { ListPage } from "./listModel";
+import { DETAIL_DEFAULT, DETAIL_MIN } from "./prefs";
 import { ErrorText } from "./Settings";
 
 // JobSpy stores JDs as Markdown. Raw HTML is never rendered and images are not
@@ -40,6 +51,8 @@ export interface DetailProps {
   loading: boolean;
   error: ApiError | null;
   overlay: boolean;
+  width: number;
+  onWidth: (width: number) => void;
   hasPrevious: boolean;
   hasNext: boolean;
   adding: boolean;
@@ -70,8 +83,66 @@ export function Detail(props: DetailProps) {
   };
   const url = job ? postingUrl(job) : null;
 
+  // Dragging the left edge resizes the panel; the width is saved on release.
+  const panel = useRef<HTMLElement>(null);
+  const [draft, setDraft] = useState<number | null>(null);
+  const width = draft ?? props.width;
+  const clampWidth = (value: number) => {
+    const available = panel.current?.parentElement?.clientWidth ?? Infinity;
+    const max = props.overlay ? available - 48 : available * 0.6;
+    return Math.round(Math.max(DETAIL_MIN, Math.min(value, max)));
+  };
+  const onResizeStart = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const handle = event.currentTarget;
+    handle.setPointerCapture(event.pointerId);
+    const startX = event.clientX;
+    const startWidth = panel.current?.getBoundingClientRect().width ?? width;
+    let latest = startWidth;
+    const move = (moveEvent: PointerEvent) => {
+      latest = clampWidth(startWidth + startX - moveEvent.clientX);
+      setDraft(latest);
+    };
+    const end = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", end);
+      handle.removeEventListener("pointercancel", end);
+      setDraft(null);
+      props.onWidth(latest);
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", end);
+    handle.addEventListener("pointercancel", end);
+  };
+  const onResizeKey = (event: KeyboardEvent<HTMLDivElement>) => {
+    const step = event.shiftKey ? 64 : 16;
+    if (event.key === "ArrowLeft") props.onWidth(clampWidth(width + step));
+    else if (event.key === "ArrowRight") props.onWidth(clampWidth(width - step));
+    else return;
+    event.preventDefault();
+  };
+
   return (
-    <aside className={props.overlay ? "detail detail-overlay" : "detail"} aria-label="Job details" aria-busy={props.loading}>
+    <aside
+      ref={panel}
+      className={props.overlay ? "detail detail-overlay" : "detail"}
+      style={{ "--detail-width": `${width}px` } as CSSProperties}
+      aria-label="Job details"
+      aria-busy={props.loading}
+    >
+      <div
+        className="detail-resize"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize details"
+        aria-valuenow={Math.round(width)}
+        aria-valuemin={DETAIL_MIN}
+        tabIndex={0}
+        title="Drag to resize · double-click to reset"
+        onPointerDown={onResizeStart}
+        onDoubleClick={() => props.onWidth(DETAIL_DEFAULT)}
+        onKeyDown={onResizeKey}
+      />
       <div className="detail-bar">
         <button type="button" className="icon-button" disabled={!props.hasPrevious} onClick={props.onPrevious} aria-label="Previous job" title="Previous job (↑ or K)">
           <ArrowUp />
