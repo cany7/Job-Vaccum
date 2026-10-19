@@ -63,10 +63,15 @@ def validate_model(value):
                    'reasoning_effort', 'thinking', 'anthropic_version'}, {'protocol', 'base_url', 'model_id'})
     choice(value['protocol'], 'protocol', ('chat_completions', 'responses', 'anthropic_messages', 'gemini_generate_content'))
     string(value['model_id'], 'model_id')
+    if value['protocol'] == 'gemini_generate_content' and value['model_id'].startswith('models/'):
+        raise CommandError('Gemini model_id must omit the models/ prefix.')
+    if value['protocol'] == 'anthropic_messages' and value.get('max_output_tokens') is None:
+        raise CommandError('Anthropic requires max_output_tokens.')
     try:
         url = urlsplit(string(value['base_url'], 'base_url'))
         if url.scheme not in ('http', 'https') or not url.hostname or url.username or url.password or url.query or url.fragment:
             raise ValueError
+        url.port
     except ValueError:
         raise CommandError('base_url must be an HTTP URL without authentication, query or fragment.') from None
     for key in ('reasoning_effort', 'anthropic_version'):

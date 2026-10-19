@@ -201,3 +201,36 @@ M2 事件细化：`run.stats` 发送 run_id、retrieval、scoring 和四个全�
 任务重跑的 received/filtered/matched 等本次聚合计数替换旧值；matched_job_ids 表示该任务历次已提交的命中关系并取并集，用于不丢失部分失败后已入库的方向命中。停止时未提交的内存结果丢弃，保留该任务此前已提交统计/命中关系。
 
 内容阶段的不同有效外链边界比较代表字段及全部已补来源中的 direct_url；代表先入库时无外链，不代表后来补入的来源外链可被忽略。该比较不修改代表字段，也不反向恢复前面跨平台公司标题阶段已合并的记录。
+
+## M3 后端、协议与桌面桥接（2026-10-19）
+
+本节覆盖 M2「只登记评分任务」的限制；schema_version=3、protocol_version=1 不变。只实现 Python、shared 类型、main/preload 及测试，不修改 renderer；Custom 页面、rubric 编辑和 Score 菜单由界面工作接入现有 settings 与下列具名 API。AI 草稿生成仍属 M5，不提前开放 drafts.generate。
+
+### 新增公开方法
+
+| Python 命令 | preload 方法 / 参数 | 返回与事件 |
+| --- | --- | --- |
+| `jobs.score` | `scoreJobs({job_ids})` 或 `scoreJobs({filter})`，严格二选一 | `{run_id,job_count}`，kind=rescore；后续 run.updated/run.stats/jobs.changed |
+| `model.test` | `testModel({model?})`，默认 `{}` 使用正式配置；传 model 测试完整未保存连接配置 | `{operation_id}`；成功 `model.test.completed {operation_id,connected:true}`，失败 `operation.failed {operation_id,error}` |
+| `operations.cancel` | `cancelOperation({operation_id})` | `{operation_id}`；M3 仅取消连接测试，最终 operation.failed/CANCELLED |
+| 无（main 本地） | `setModelKey({key:string})` / `deleteModelKey()` | `{has_key:boolean}`；不回显 Key，不更新正式模型设置 |
+
+`model.test.completed` 是 M3 新增的独立成功事件，避免现有 renderer 把模型测试当 CSV 导出完成（原 operation.completed 仍返回 row_count）。所有事件使用已有统一封装与会话递增 seq。接受响应先于对应事件。连接测试的输出文本不回传、不保存；模型输出只有有效非空最终文本才算连接成功。测试失败不修改设置、rubric 或草稿。
+
+settings.get/save 的 has_key 改为实际内存凭据状态。`internal.credentials` 私有消息接受 `{proxy_url?:string|null,model_key?:string|null}`，省略字段保留、null 只删除该凭据；至少一个字段。main 在读取 settings、preview/start/resume、jobs.score、model.test 前从 App 目录 `model-key.enc` 解密注入；保存/删除时立即更新内存。文件使用 safeStorage、0600 权限；加密/解密不可用返回 AUTH_ERROR，不明文保存。renderer 不能调用 internal.credentials。运行开始时捕获 Key，期间修改仅影响下次 start/resume/test；resume 可修正 Key，仍沿用原模型和 rubric 快照。
+
+### 手动评分与运行
+
+- job_ids 去重后 1..200；有失效岗位时整次返回 NOT_FOUND，提示刷新，不创建部分运行。filter 使用 FilterSpec（可含 sort，不接受分页），与列表/导出复用同一筛选；创建时一次解析全部匹配岗位，之后新增/移出清单不改变固定集合。零匹配返回 VALIDATION_ERROR。前端的 Score all N matching 需先展示确认数量，再提交 filter；job_count 是服务创建时的实际数量。
+- 手动评分只要求当前 model、已保存 Key、非空 rubric，不要求 query/城市，也不使用抓取代理；不受 auto_score_enabled 影响。缺配置返回 VALIDATION_ERROR，任何 pipeline/rescore 活跃（含 stopping）返回 BUSY。清理等待运行和连接测试结束；浏览、清单编辑、CSV 不等待网络。
+- 新任务与岗位 pending 原子登记，旧成功分数保留；实际请求开始转 running，每次请求（含重试）增加 attempt_count。成功事务只更新 jobs 的 score/reason/scored_at/score_model/state/error 和对应任务/统计；失败只写 failed、last_score_error（可读脱敏文本）和任务 error，不改旧成功分与时间、正文或清单。0 分是 succeeded。
+- 新批次入库后立即排队评分，与后续抓取重叠；本轮每 job 一个任务，输入仅 title/company/description 加运行 rubric。不同 job 即使输入完全相同也独立请求，不缓存、不共享结果；后续来源/方向命中不重评。抓取结束后仍等待评分，提交后发送 jobs.changed 和 run 事件。
+- stop 立即停止后续派发与重试，可打断 RPM/退避；已发请求继续占用全局并发直至结束，成功评分照常保存，再转 stopped。未开始任务 cancelled，未完成岗位保留 pending 供续跑。resume 跳过 succeeded，其他任务获得新的三次尝试预算；启动将旧 running 任务转 pending，保留旧成功分。更完整的崩溃/退出故障注入仍属 M4。
+
+### HTTP 与限速
+
+四协议 endpoint、参数映射和最终文本提取遵循本文件第 4–6 节；仅 requests 直接 HTTP，无 SDK、提供商推断或模型名分支。Base URL 原路径保留、去尾斜杠再拼后缀，不跟随重定向；Gemini model_id 不接受 models/ 前缀。Anthropic max_output_tokens 必填，本地保存/测试即校验；版本头缺省 2023-06-01。其他可选字段 null 不发，temperature=0 发送。
+
+全 service 共用 LLM 线程池，并发 1、RPM 10、起始间隔至少 6 秒（空闲后不累积突发额度）。连接测试、首次评分、手动评分、每次重试均经过同一门；后续 M5 生成也必须使用该池。连接/读取超时 10/120 秒，读取超时不是总时限。最多 3 次尝试，基础退避 5/10 秒，Retry-After 秒数可延长等待且能取消；网络异常、408/429/5xx、无效文本或评分 JSON 可重试，401/403 和其他明确 HTTP 错误不重试。错误只包含受控消息/code/retryable，HTTP 错误另含 http_status，不持久化或回显 provider 响应/网络异常全文、认证头或秘密。截断、拒绝、空候选、畸形响应及非整数 0..10 / 非字符串 reason 都失败，不从 reasoning/thought 提取评分。
+
+fake LLM 仅 Python 测试依赖注入，支持成功（含 0 分）、无效输出、失败和延迟；四协议使用本地假 HTTP server 验证。未新增真实服务或模拟模式的产品开关。

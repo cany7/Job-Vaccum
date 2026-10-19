@@ -12,6 +12,7 @@ import pytest
 
 from job_vaccum.pipeline.configuration import DEFAULTS, PARAMETERS, draft
 from job_vaccum.pipeline.fake import FakeScraper
+from job_vaccum.llm.fake import FakeLlm
 from job_vaccum.pipeline.ingest import ingest
 from job_vaccum.pipeline.records import description_key, direct_url, text_key, filter_reason
 from job_vaccum.pipeline.scraper import arguments, dataframe_result, invoke, process_attempt, retrieve, observe_http
@@ -43,7 +44,9 @@ def service(tmp_path):
     db = connect(tmp_path / 'app.sqlite3')
     # In-process test attempt uses the exact same adapter/result boundary; real
     # spawn ownership is covered separately without network access.
-    s = Service(db, tmp_path, clock=lambda: NOW, attempt=lambda *args: outcome([record()]))
+    s = Service(db, tmp_path, clock=lambda: NOW, attempt=lambda *args: outcome([record()]),
+                llm_options={'transport': FakeLlm(), 'rpm': 600000, 'retry_base': 0})
+    s.dispatch('internal.credentials', {'model_key': 'synthetic-test-key'})
     yield s
     s.runs.close()
     db.close()
@@ -68,10 +71,13 @@ def drain(s, *, until=None, timeout=5):
     event = lambda name, data: events.append((name, data))
     deadline = time.monotonic() + timeout
     s.runs.advance(event)
-    while s.runs.thread:
+    while s.runs.thread or s.runs.score_task:
         assert time.monotonic() < deadline, 'Run timed out'
         kind, payload = s.inbox.get(timeout=timeout)
-        s.runs.handle(kind, payload, event)
+        if kind.startswith('llm_'):
+            s.handle_llm(kind, payload, event)
+        else:
+            s.runs.handle(kind, payload, event)
         if until and until():
             break
     return events
@@ -209,16 +215,13 @@ def test_retry_partial_atomic_resume_and_auto_score_snapshot(service, monkeypatc
     # New scored run: one task per new job, historical unscored hit remains unqueued.
     s.runs.attempt = lambda *args: outcome([record(), record('new', description='Different JD', title='Another Engineer')])
     scored = start(s)
-    drain(s)
-    d = detail(s, scored)
-    assert d['status'] == 'running' and d['stage'] == 'scoring' and d['stats']['scoring']['pending'] == 1
-    assert s.repo.db.execute("SELECT count(*) FROM jobs WHERE score_state='unscored'").fetchone()[0] == 1
     with pytest.raises(CommandError) as busy:
         start(s)
     assert busy.value.code == 'BUSY'
-    s.dispatch('runs.stop', {'run_id': scored})
     drain(s)
-    assert detail(s, scored)['status'] == 'stopped'
+    d = detail(s, scored)
+    assert d['status'] == 'succeeded' and d['stats']['scoring']['succeeded'] == 1
+    assert s.repo.db.execute("SELECT count(*) FROM jobs WHERE score_state='unscored'").fetchone()[0] == 1
 
 
 def test_atomic_failure_rolls_back_jobs_scores_and_completion(service, monkeypatch):
@@ -602,8 +605,7 @@ def test_new_scoring_tasks_reference_job_only_and_do_not_copy_jd(service):
     tasks = [t for t in d['tasks'] if t['kind'] == 'score']
     assert len(tasks) == 1 and set(tasks[0]['spec']) == {'job_id'}
     assert d['stats']['scoring']['total'] == 1 and d['new_job_count'] == 1
-    s.dispatch('runs.stop', {'run_id': run})
-    drain(s)
+    assert d['status'] == 'succeeded'
 
 
 def test_proxy_edits_during_run_only_affect_next_start(service):
