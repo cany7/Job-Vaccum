@@ -17,7 +17,7 @@ def test_ready_and_multiple_requests(tmp_path):
     result = messages(tmp_path, b'{"type":"request","id":"1","method":"app.status"}\n'
                                b'{"type":"request","id":"2","method":"app.ping","params":{"message":"hello"}}\n')
     assert result[0] == {"type": "event", "name": "ready", "seq": 1,
-                         "data": {"protocol_version": 1, "app_version": "0.1.0", "schema_version": 1}}
+                         "data": {"protocol_version": 1, "app_version": "0.1.0", "schema_version": 2}}
     assert result[1]["id"] == "1" and result[1]["result"]["active_run"] is None
     assert result[2] == {"type": "response", "id": "2", "ok": True, "result": {"message": "hello"}}
 

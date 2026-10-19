@@ -101,6 +101,13 @@ export class Backend extends EventEmitter {
       this.setState({ phase: "ready", ready: message.data });
       return;
     }
+    if (message.type === "event") {
+      if (!["jobs.changed", "cleanup.completed", "operation.completed", "operation.failed"].includes(message.name)
+        || !Number.isInteger(message.seq) || !message.data) throw new Error("Unexpected event");
+      // Let response promises register operation IDs before completion is delivered.
+      queueMicrotask(() => this.emit("service-event", message));
+      return;
+    }
     if (message.type !== "response") throw new Error("Unexpected event");
     if (typeof message.ok !== "boolean") throw new Error("Invalid response");
     if (message.id === null) throw new Error("Unmatched protocol error");

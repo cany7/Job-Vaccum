@@ -11,7 +11,7 @@ def test_empty_database_restart_and_transaction(tmp_path):
     with closing(connect(path)) as db:
         assert db.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         assert db.execute("PRAGMA busy_timeout").fetchone()[0] == 5000
-        assert storage_check(db) == {"read_write": True, "schema_version": 1, "journal_mode": "wal"}
+        assert storage_check(db) == {"read_write": True, "schema_version": 2, "journal_mode": "wal"}
         assert db.execute("SELECT count(*) FROM settings").fetchone()[0] == 0
         with db:
             db.execute("INSERT INTO settings VALUES ('synthetic', '0')")
@@ -19,7 +19,7 @@ def test_empty_database_restart_and_transaction(tmp_path):
             db.execute("INSERT INTO settings VALUES ('rolled_back', 'true')")
             db.execute("INSERT INTO settings VALUES ('synthetic', '1')")
     with closing(connect(path)) as db:
-        assert db.execute("SELECT * FROM schema_version").fetchall() == [(1,)]
+        assert db.execute("SELECT * FROM schema_version").fetchall() == [(2,)]
         assert db.execute("SELECT * FROM settings").fetchall() == [("synthetic", "0")]
 
 
@@ -30,17 +30,18 @@ def test_migration_failure_rolls_back_schema_and_version(tmp_path):
             migrate(db, tmp_path)
         assert db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall() == []
         (tmp_path / "001.sql").write_text("CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT);\n")
+        (tmp_path / "002.sql").write_text("CREATE TABLE extra (id TEXT);\n")
         migrate(db, tmp_path)
-        assert db.execute("SELECT version FROM schema_version").fetchone() == (1,)
+        assert db.execute("SELECT version FROM schema_version").fetchone() == (2,)
 
 
 def test_future_schema_is_rejected_without_modifying_data(tmp_path):
     path = tmp_path / "app.sqlite3"
     with closing(connect(path)) as db, db:
-        db.execute("UPDATE schema_version SET version=2")
+        db.execute("UPDATE schema_version SET version=3")
         db.execute("INSERT INTO settings VALUES ('synthetic', 'true')")
     with pytest.raises(DatabaseError):
         connect(path)
     with closing(sqlite3.connect(path)) as db:
-        assert db.execute("SELECT version FROM schema_version").fetchone() == (2,)
+        assert db.execute("SELECT version FROM schema_version").fetchone() == (3,)
         assert db.execute("SELECT value_json FROM settings").fetchone() == ("true",)

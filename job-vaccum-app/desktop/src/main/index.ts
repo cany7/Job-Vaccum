@@ -1,8 +1,9 @@
-import { app, BrowserWindow, ipcMain, Menu, session } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, session, type IpcMainInvokeEvent } from "electron";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Backend } from "./backend";
+import { registerBusinessIpc } from "./business-ipc";
 import { channels } from "../shared/protocol";
 
 app.setName("Job Vaccum");
@@ -18,6 +19,11 @@ let backend: Backend | undefined;
 let quitting = false;
 let canQuit = false;
 const rendererPath = path.join(desktopRoot, "dist/renderer/index.html");
+
+function assertSender(event: IpcMainInvokeEvent) {
+  if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame
+    || fileURLToPath(event.senderFrame.url) !== rendererPath) throw new Error("Untrusted IPC sender.");
+}
 
 function createWindow() {
   if (quitting) return;
@@ -64,18 +70,18 @@ if (!app.requestSingleInstanceLock()) {
     const executable = app.isPackaged
       ? path.join(process.resourcesPath, "backend/job-vaccum-service/job-vaccum-service")
       : path.resolve(desktopRoot, "../backend/.venv/bin/python");
-    backend = new Backend({ executable, args: app.isPackaged ? [] : ["-m", "job_vaccum"], dataDir });
+    backend = new Backend({ executable, args: app.isPackaged ? [] : ["-m", "job_vaccum", "--enable-dev-commands"], dataDir });
     backend.on("state", (state) => window?.webContents.send(channels.connectionChanged, state));
     for (const [channel, method] of [
       [channels.connection, null], [channels.status, "app.status"],
       [channels.ping, "app.ping"], [channels.diagnostics, "app.diagnostics"],
     ] as const) {
       ipcMain.handle(channel, (event, message?: unknown) => {
-        if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame
-          || fileURLToPath(event.senderFrame.url) !== rendererPath) throw new Error("Untrusted IPC sender.");
+        assertSender(event);
         return method === null ? backend!.state : backend!.request(method, method === "app.ping" ? { message } : {});
       });
     }
+    registerBusinessIpc(backend, () => window, assertSender, dataDir);
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       { label: "Job Vaccum", submenu: [{ role: "about" }, { type: "separator" },
         { label: "Show Job Vaccum", click: createWindow }, { role: "hide" }, { role: "hideOthers" },

@@ -14,6 +14,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Job Vaccum JSON Lines service")
     parser.add_argument("--data-dir", required=True, type=Path,
                         help="Absolute writable directory supplied by Electron main")
+    parser.add_argument("--enable-dev-commands", action="store_true", help="Enable public synthetic development fixtures (not in frozen builds)")
     args = parser.parse_args()
     if not args.data_dir.is_absolute():
         parser.error("--data-dir must be absolute")
@@ -22,7 +23,7 @@ def main() -> int:
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     try:
         with data_directory(args.data_dir) as root:
-            serve(root, sys.stdin.buffer, sys.stdout.buffer)
+            serve(root, sys.stdin.buffer, sys.stdout.buffer, enable_dev=args.enable_dev_commands)
     except DataDirectoryBusy:
         logging.error("BUSY: Another backend owns this data directory.")
         return 2

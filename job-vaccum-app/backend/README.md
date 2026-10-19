@@ -1,9 +1,10 @@
-# M0 backend
+# Backend service
 
-Python 3.13 service, UTF-8 JSON Lines on stdin/stdout. No HTTP server,
-scraping, LLM calls, scheduler, or job/application repositories yet.
-Only Python owns `app.sqlite3`. Migration 001 creates `schema_version`
-and `settings`; business tables belong to later migrations.
+Python 3.13 service, UTF-8 JSON Lines on stdin/stdout. Only Python owns
+`app.sqlite3`. Migration 001 creates settings; migration 002 adds jobs,
+identities, directions/queries, job directions and applications. Existing M0
+settings survive migration. Scraping, scoring, runs and scheduling belong to
+later milestones; this step has no renderer business interface.
 
 From the repository root:
 
@@ -17,14 +18,14 @@ uv run --locked python -m job_vaccum --data-dir "$(git rev-parse --show-toplevel
 the packaged application. The service creates `logs/`, `tmp/`, `app.sqlite3`,
 and a persistent `service.lock` file. The OS releases the advisory lock on exit
 or crash; do not unlink the lock file or kill processes based on its existence.
-There is no startup cleanup or run recovery in this milestone.
+Startup clears App-owned tmp resources and checks retention; automatic cleanup checks every 60 seconds while the service is running. No run recovery is implemented yet.
 
 ## Protocol v1
 
 First output, only after the lock and migrations succeed:
 
 ```json
-{"type":"event","name":"ready","seq":1,"data":{"protocol_version":1,"app_version":"0.1.0","schema_version":1}}
+{"type":"event","name":"ready","seq":1,"data":{"protocol_version":1,"app_version":"0.1.0","schema_version":2}}
 ```
 
 Requests contain `type: "request"`, a string `id` (1–128 characters), a
@@ -62,8 +63,68 @@ message, and exit code 2. The data directory being owned returns stderr `BUSY`.
 EOF and SIGTERM close SQLite and release the lock. No shutdown command is added.
 Electron should keep stdin open while its backend is needed; closing the window
 must retain main/service. Explicit Quit closes stdin, waits up to 10 seconds,
-then terminates only its owned process if necessary. Future workers and LLM
-shutdown behavior are not implemented yet.
+then terminates only its owned process if necessary. CSV exports use a reader thread and finish on EOF; Electron still bounds process shutdown. Future scraping workers and LLM shutdown behavior are not implemented yet.
+
+## M1 data commands
+
+All parameters use snake_case. Validation rejects unexpected fields, invalid
+states, invalid ranges, and unknown sorts. IDs created by the service are UUIDs.
+Timestamps are UTC milliseconds; source publication dates remain YYYY-MM-DD.
+
+- `jobs.list`: FilterSpec fields directly in params, plus `scope` (discover or
+  applications), `sort`, `page` (1-based), `page_size` (1..200, default 50).
+  Returns `{items,total}`; summaries omit JD. `jobs.detail {job_id}` returns full JD.
+  Multi-select dimensions are OR within each dimension, AND between dimensions.
+  Empty arrays mean unrestricted. NULL sort values always appear last, with ID
+  as a stable tiebreaker. Salary ranges require currency and interval and match
+  overlapping known intervals. Nonempty run_ids requires M2 and returns validation
+  error; no run tables are created early.
+- `applications.add {job_id}` and `add_many {job_ids}` return added,
+  already_present or not_found without overwriting existing user fields.
+  `update {job_id,status?,notes?}`, `set_status {job_ids,status}`,
+  `remove {job_ids}`, `restore {items}` support management and transient UI Undo.
+  Bulk IDs are deduplicated, at most 200 per command. remove returns full original
+  records; set_status returns previous status and updated_at. Strip the `outcome`
+  field from successful set_status items before sending them to restore. Status
+  snapshots restore only status/updated_at and never replace notes. A full remove
+  snapshot can reinsert an application; a status-only snapshot cannot recreate
+  an application subsequently removed by the user. Undo is not persisted.
+- `settings.get` returns retention_days and directions with their queries.
+  `settings.save {retention_days}` accepts nonnegative integers (default 14,
+  zero disables automatic expiration); saving never performs cleanup.
+- `directions.save {id?,name?,enabled?}`, `delete {id}`, `reorder {ids}` and
+  `queries.save {id?,direction_id?,expression?,enabled?}`, `delete {id}`.
+  Reorder must list every current direction once. Direction deletion also removes
+  that direction's query labels and associations, preserving jobs and sources.
+- `cleanup.preview {mode:"manual"|"automatic"}` returns counts, retained
+  application count, and disabled flag. `cleanup.execute {mode:"manual"}` checks
+  current application protection again inside its transaction. Only App-owned
+  logs/tmp are cleaned; symlinks are not traversed. `failed_files` reports partial
+  file cleanup failures after the database commit. runs counts are zero in M1;
+  M2/M7 will connect run/schedule retention when those tables are introduced.
+- `export.csv {scope,filter?,range:"filtered"|"all",include_jd,destination_path}`
+  is private main-to-service input. Renderer uses a main-owned save-panel token,
+  never a path. Returns operation_id, then operation.completed with row_count or
+  operation.failed with a controlled error. Streaming CSV uses a read-only WAL
+  snapshot, UTF-8 BOM, and all matching pages; queries and application edits
+  remain responsive. Cleanup and a second export return BUSY during export.
+  Failure may leave a partial CSV; no retry, replay, or recovery file is created.
+- Committed changes emit jobs.changed, cleanup emits cleanup.completed. Event seq
+  increases within the current session. Events are notifications, not persistent
+  history; consumers re-query current data.
+
+For public synthetic development fixtures, explicitly start the service with
+`--enable-dev-commands`, then send:
+
+```json
+{"type":"request","id":"seed","method":"dev.import_synthetic","params":{"count":125}}
+{"type":"request","id":"browse","method":"jobs.list","params":{"page":1,"page_size":50}}
+```
+
+The fixture contains two directions, multiple sources, no score, zero score and
+long JD. Reimport merges collection relationships and preserves existing body,
+first_seen, scores and application data. This is not M2 scraper normalization or
+deduplication. Frozen builds refuse the import even if the flag is supplied.
 
 ## Verification and packaging
 

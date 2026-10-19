@@ -1,3 +1,5 @@
+import type { BusinessApi } from "./business";
+export type * from "./business";
 // Shared types for the named preload API. Electron main/preload implement it and
 // expose it as `window.jobVaccum` via contextBridge; the renderer never sends
 // arbitrary methods. Field names follow protocol v1 (snake_case).
@@ -47,7 +49,7 @@ export interface Diagnostics {
   storage: { read_write: boolean; schema_version: number; journal_mode: string };
 }
 
-export interface JobVaccumApi {
+export interface JobVaccumApi extends BusinessApi {
   getConnection(): Promise<ConnectionState>;
   /** Returns an unsubscribe function. */
   onConnectionChange(listener: (state: ConnectionState) => void): () => void;
