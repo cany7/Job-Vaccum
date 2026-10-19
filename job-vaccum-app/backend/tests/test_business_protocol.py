@@ -43,12 +43,12 @@ def test_command_errors_continue_and_development_gate(tmp_path):
 
 
 def test_export_async_completion_and_failure_events(tmp_path):
-    params = {'scope': 'discover', 'range': 'all', 'include_jd': True, 'destination_path': str(tmp_path / 'export.csv')}
+    params = {'scope': 'discover', 'range': 'all', 'include_jd': True, 'destination_path': str(tmp_path.parent / (tmp_path.name + '-export.csv'))}
     data = request('import', 'dev.import_synthetic', {'count': 125}) + request('export', 'export.csv', params)
     responses, events = run(tmp_path, data, enable_dev=True)
     completed = next(e for e in events if e['name'] == 'operation.completed')
     assert completed['data'] == {'operation_id': responses['export']['result']['operation_id'], 'row_count': 125}
-    params['destination_path'] = str(tmp_path / 'nonexistent' / 'file.csv')
+    params['destination_path'] = str(tmp_path.parent / (tmp_path.name + '-nonexistent') / 'file.csv')
     responses, events = run(tmp_path, request('export', 'export.csv', params))
     failed = next(e for e in events if e['name'] == 'operation.failed')
     assert failed['data']['operation_id'] == responses['export']['result']['operation_id']
@@ -68,7 +68,7 @@ def test_export_keeps_receiver_responsive_cleanup_busy_and_auto_deferred(tmp_pat
             if message.get('id') == 'list':
                 released.set()
             return super().write(data)
-    params = {'scope': 'discover', 'range': 'all', 'include_jd': False, 'destination_path': str(tmp_path / 'file.csv')}
+    params = {'scope': 'discover', 'range': 'all', 'include_jd': False, 'destination_path': str(tmp_path.parent / (tmp_path.name + '-file.csv'))}
     data = request('export', 'export.csv', params)
     data += request('busy', 'cleanup.execute', {'mode': 'manual'})
     data += request('export-busy', 'export.csv', params)
@@ -137,3 +137,65 @@ def test_periodic_cleanup_without_incoming_requests(tmp_path):
         lines.put(b'')
         thread.join(5)
     assert not thread.is_alive() and not errors
+
+
+def test_large_list_and_remove_return_errors_without_losing_data_or_connection(tmp_path):
+    with closing(connect(tmp_path / 'app.sqlite3')) as db:
+        repo = Repository(db, lambda: NOW)
+        import_synthetic(repo, {'count': 200})
+        identifiers = [fixture_id(1000 + index) for index in range(200)]
+        repo.add({'job_ids': identifiers}, many=True)
+        for identifier in identifiers:
+            repo.update({'job_id': identifier, 'notes': 'x' * 6000})
+    data = request('large-list', 'jobs.list', {'scope': 'applications', 'page_size': 200})
+    data += request('large-remove', 'applications.remove', {'job_ids': identifiers})
+    data += request('small-list', 'jobs.list', {'scope': 'applications', 'page_size': 50})
+    data += request('ping', 'app.ping', {'message': 'still connected'})
+    responses, events = run(tmp_path, data)
+    for identifier in ('large-list', 'large-remove'):
+        assert responses[identifier]['error']['code'] == 'RESPONSE_TOO_LARGE'
+    assert responses['small-list']['result']['total'] == 200
+    assert len(responses['small-list']['result']['items']) == 50
+    assert all(row['application']['notes'] == 'x' * 6000 for row in responses['small-list']['result']['items'])
+    assert responses['ping']['result']['message'] == 'still connected'
+    assert not any(event['name'] == 'jobs.changed' for event in events)
+    # Reducing the selection returns complete, restorable snapshots.
+    responses, _ = run(tmp_path, request('remove', 'applications.remove', {'job_ids': identifiers[:50]}))
+    removed = responses['remove']['result']['items']
+    assert len(removed) == 50 and all(item['notes'] == 'x' * 6000 for item in removed)
+    responses, _ = run(tmp_path, request('restore', 'applications.restore', {'items': removed})
+                       + request('count', 'jobs.list', {'scope': 'applications', 'page_size': 1}))
+    assert responses['restore']['result']['counts']['restored'] == 50
+    assert responses['count']['result']['total'] == 200
+
+
+def test_non_ascii_update_response_is_checked_before_commit(tmp_path):
+    identifier = fixture_id(1000)
+    with closing(connect(tmp_path / 'app.sqlite3')) as db:
+        repo = Repository(db, lambda: NOW)
+        import_synthetic(repo, {'count': 1})
+        repo.add({'job_id': identifier})
+        repo.update({'job_id': identifier, 'notes': 'original'})
+    # A literal UTF-8 request fits the input limit, but escaped output would not.
+    update = json.dumps({'type': 'request', 'id': 'unicode-update', 'method': 'applications.update',
+                         'params': {'job_id': identifier, 'notes': '中' * 180_000}}, ensure_ascii=False).encode() + b'\n'
+    responses, _ = run(tmp_path, update + request('detail', 'jobs.detail', {'job_id': identifier}))
+    assert responses['unicode-update']['error']['code'] == 'RESPONSE_TOO_LARGE'
+    assert responses['detail']['result']['application']['notes'] == 'original'
+
+
+def test_export_worker_rechecks_path_after_command_acceptance(tmp_path, monkeypatch):
+    from job_vaccum.storage.export import export_csv
+    destination = tmp_path.parent / (tmp_path.name + '-retargeted.csv')
+    def retarget_then_export(database, params):
+        destination.symlink_to(database)
+        return export_csv(database, params)
+    monkeypatch.setattr('job_vaccum.service.server.export_csv', retarget_then_export)
+    params = {'scope': 'discover', 'range': 'all', 'include_jd': False, 'destination_path': str(destination)}
+    responses, events = run(tmp_path, request('import', 'dev.import_synthetic', {'count': 3})
+                             + request('export', 'export.csv', params), enable_dev=True)
+    assert responses['export']['ok'] is True
+    assert any(event['name'] == 'operation.failed' for event in events)
+    assert (tmp_path / 'app.sqlite3').read_bytes().startswith(b'SQLite format 3\x00')
+    responses, _ = run(tmp_path, request('list', 'jobs.list'))
+    assert responses['list']['result']['total'] == 3

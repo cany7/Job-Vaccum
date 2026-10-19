@@ -40,12 +40,15 @@ npm run test:e2e
 
 The 9 Node tests use a synthetic process for fragmented Unicode/multiple
 responses, request correlation, incompatible/missing ready, malformed/oversized
-output, startup/exit failures, late responses, and shutdown. The 5 Playwright
+output, startup/exit failures, late responses, and shutdown. The 7 Playwright
 Electron scenarios run real windows and the backend: ping/diagnostics, minimum
 window width/long text/focus/reduced-motion, single instance, close/reopen, Quit,
 corrupt database startup, and backend crash. One scenario injects controlled
 connection/loading/error responses at the Electron boundary for UI verification;
-the other service interactions are real and offline. The M1 scenario calls the named bridge to import public fixtures, edit/undo applications, export all 125 jobs, validate destination tokens and verify persistence after restart. Only the native save panel/Finder boundaries are mocked. No browser download needed.
+the other service interactions are real and offline. The M1 scenario calls the named bridge to import public fixtures, edit/undo applications, export all 125 jobs, validate destination tokens and verify persistence after restart. Only the native save panel/Finder boundaries are mocked. Two regression scenarios
+also cover resolved CSV paths (including symlinks and retargeted tokens) and
+200 applications with 6 KB notes, controlled oversized responses, connection
+continuity and preserved Undo data. No browser download needed.
 Screenshots and data go to ignored `tmp/job-vaccum-app/`.
 
 ## M1 bridge integration
@@ -58,11 +61,17 @@ it. See the backend README for command semantics and limits.
 
 CSV flow: chooseCsvDestination opens the native save panel and returns an opaque
 in-memory token (or null on cancellation). exportCsv consumes that token once;
-main alone resolves it to a service destination_path. Destinations within App
-userData are rejected to avoid data/cleanup conflicts. onServiceEvent reports
+main alone resolves it to a service destination_path. Both the userData root
+and destination are checked using their actual resolved paths (new filenames use
+the resolved parent directory). Main rechecks before export, and Python checks
+again before opening. File/parent symlinks into App data are rejected to avoid
+database overwrite and cleanup conflicts. onServiceEvent reports
 operation completion/failure. showCsvInFinder accepts only a token for a completed
 export from this session. Closing/reopening a window retains main/service state.
-No renderer business call or UI control has been added in M1 step 2.
+Oversized business responses return RESPONSE_TOO_LARGE without dropping the
+connection. Reduce page size/selection; update/remove transactions that cannot
+return their full result are rolled back before commit. No renderer business
+call or UI control has been added in M1 step 2.
 
 ## Local arm64 package
 

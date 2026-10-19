@@ -57,6 +57,15 @@ Malformed UTF-8/JSON, an invalid id, or an oversized line returns an error with
 echo incoming values or exception text. Each incoming line produces at most one
 response; ids correlate responses and are not replay tokens. Diagnostics errors
 return `INTERNAL_ERROR`; request validation returns `VALIDATION_ERROR`.
+Output responses are serialized and checked before any bytes are written. An
+oversized valid result returns `RESPONSE_TOO_LARGE` with the original request ID;
+the connection stays usable. Reduce the page size or selection rather than
+retrying the same large query. No fields are silently truncated. Application
+update responses and remove Undo snapshots are checked before commit; if they
+exceed the limit, that transaction rolls back. The limit counts serialized bytes
+(including JSON escaping), not characters. Electron still rejects genuinely
+malformed/oversized protocol lines.
+
 Logs use stderr. Startup failures produce no ready event, an explanatory stderr
 message, and exit code 2. The data directory being owned returns stderr `BUSY`.
 
@@ -88,7 +97,9 @@ Timestamps are UTC milliseconds; source publication dates remain YYYY-MM-DD.
   field from successful set_status items before sending them to restore. Status
   snapshots restore only status/updated_at and never replace notes. A full remove
   snapshot can reinsert an application; a status-only snapshot cannot recreate
-  an application subsequently removed by the user. Undo is not persisted.
+  an application subsequently removed by the user. Oversized update/remove
+  responses return RESPONSE_TOO_LARGE before commit; a rejected remove does not
+  lose applications or Undo data. Undo is not persisted.
 - `settings.get` returns retention_days and directions with their queries.
   `settings.save {retention_days}` accepts nonnegative integers (default 14,
   zero disables automatic expiration); saving never performs cleanup.
@@ -104,7 +115,10 @@ Timestamps are UTC milliseconds; source publication dates remain YYYY-MM-DD.
   M2/M7 will connect run/schedule retention when those tables are introduced.
 - `export.csv {scope,filter?,range:"filtered"|"all",include_jd,destination_path}`
   is private main-to-service input. Renderer uses a main-owned save-panel token,
-  never a path. Returns operation_id, then operation.completed with row_count or
+  never a path. Main resolves existing targets or a new filename's parent, checks
+  the actual data root at selection and export, and stores the resolved path in
+  the token. Python resolves again before opening and rejects targets inside the
+  actual App data directory, including file/parent symlinks. Returns operation_id, then operation.completed with row_count or
   operation.failed with a controlled error. Streaming CSV uses a read-only WAL
   snapshot, UTF-8 BOM, and all matching pages; queries and application edits
   remain responsive. Cleanup and a second export return BUSY during export.

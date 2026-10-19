@@ -248,3 +248,90 @@ test('M1 named bridge persists business data and exports through a main-owned de
     expect(state.applications.result.items[0].application.notes).toBe('Synthetic note');
   } finally { await restarted.close(); }
 });
+
+test('CSV resolved destinations cannot reach application data or be retargeted after selection', async () => {
+  test.skip(Boolean(packaged), 'Uses development synthetic fixtures');
+  const { readFile, symlink, unlink, rm } = require('node:fs/promises');
+  const dataDir = await directory();
+  const outsideDir = await directory();
+  const dataAlias = path.join(outsideDir, 'data-alias');
+  await symlink(dataDir, dataAlias, 'dir');
+  // Launch through an alias as well, so the protected root must be resolved.
+  const application = await launch(dataAlias);
+  try {
+    const page = await application.firstWindow();
+    await expect(page.getByRole('status')).toHaveText('Connected');
+    await page.evaluate(() => window.jobVaccum.importSyntheticJobs({ count: 3 }));
+    const database = path.join(dataDir, 'app.sqlite3');
+    const fileAlias = path.join(outsideDir, 'export.csv');
+    await symlink(database, fileAlias);
+    for (const destination of [fileAlias, path.join(dataAlias, 'new.csv'), path.join(dataAlias, 'app.sqlite3')]) {
+      await application.evaluate(({ dialog }, filePath) => {
+        dialog.showSaveDialog = async () => ({ canceled: false, filePath });
+      }, destination);
+      const chosen = await page.evaluate(() => window.jobVaccum.chooseCsvDestination());
+      expect(chosen.ok).toBe(false);
+      expect(chosen.error.code).toBe('VALIDATION_ERROR');
+    }
+    const pendingPath = path.join(outsideDir, 'pending.csv');
+    await writeFile(pendingPath, 'ordinary external file');
+    await application.evaluate(({ dialog }, filePath) => {
+      dialog.showSaveDialog = async () => ({ canceled: false, filePath });
+    }, pendingPath);
+    const chosen = await page.evaluate(() => window.jobVaccum.chooseCsvDestination());
+    expect(chosen.ok).toBe(true);
+    await unlink(pendingPath);
+    await symlink(database, pendingPath);
+    const result = await page.evaluate(destination_token => window.jobVaccum.exportCsv({
+      scope: 'discover', range: 'all', include_jd: false, destination_token,
+    }), chosen.result.destination_token);
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe('VALIDATION_ERROR');
+    expect((await readFile(database)).subarray(0, 16).toString('ascii')).toBe('SQLite format 3\0');
+    expect((await page.evaluate(() => window.jobVaccum.listJobs({}))).result.total).toBe(3);
+    expect((await page.evaluate(() => window.jobVaccum.getDiagnostics())).ok).toBe(true);
+  } finally {
+    await application.close();
+    await rm(outsideDir, { recursive: true, force: true });
+  }
+});
+
+test('oversized business responses keep the connection ready and preserve bulk Undo data', async () => {
+  test.skip(Boolean(packaged), 'Uses development synthetic fixtures');
+  const application = await launch(await directory());
+  try {
+    const page = await application.firstWindow();
+    await expect(page.getByRole('status')).toHaveText('Connected');
+    const result = await page.evaluate(async () => {
+      const api = window.jobVaccum;
+      await api.importSyntheticJobs({ count: 200 });
+      const jobs = await api.listJobs({ page_size: 200 });
+      const job_ids = jobs.result.items.map(item => item.id);
+      await api.addApplications({ job_ids });
+      for (const job_id of job_ids) {
+        const saved = await api.updateApplication({ job_id, notes: 'x'.repeat(6000) });
+        if (!saved.ok) throw new Error(saved.error.message);
+      }
+      const large = await api.listJobs({ scope: 'applications', page_size: 200 });
+      const removal = await api.removeApplications({ job_ids });
+      const small = await api.listJobs({ scope: 'applications', page_size: 50 });
+      const ping = await api.ping('still connected');
+      const connection = await api.getConnection();
+      const removed = await api.removeApplications({ job_ids: job_ids.slice(0, 50) });
+      const restored = await api.restoreApplications({ items: removed.result.items });
+      const after = await api.listJobs({ scope: 'applications', page_size: 1 });
+      return { large, removal, smallCount: small.result.total, smallItems: small.result.items.length,
+        allNotesIntact: small.result.items.every(item => item.application.notes === 'x'.repeat(6000)),
+        ping, connection, restored, afterCount: after.result.total };
+    });
+    expect(result.large.error.code).toBe('RESPONSE_TOO_LARGE');
+    expect(result.removal.error.code).toBe('RESPONSE_TOO_LARGE');
+    expect(result.smallCount).toBe(200);
+    expect(result.smallItems).toBe(50);
+    expect(result.allNotesIntact).toBe(true);
+    expect(result.ping.result.message).toBe('still connected');
+    expect(result.connection.phase).toBe('ready');
+    expect(result.restored.result.counts.restored).toBe(50);
+    expect(result.afterCount).toBe(200);
+  } finally { await application.close(); }
+});

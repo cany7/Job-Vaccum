@@ -74,3 +74,21 @@ def test_native_dependency_and_sqlite_diagnostics(tmp_path):
     assert diagnostic["machine"] == "arm64"
     assert diagnostic["storage"]["read_write"] is True
     assert "libcurl" in diagnostic["curl_version"]
+
+
+def test_response_limit_uses_actual_serialization_and_keeps_request_id():
+    from job_vaccum.service.protocol import encode, write
+    output = BytesIO()
+    write(output, {'type': 'response', 'id': 'large', 'ok': True,
+                   'result': {'notes': '中' * 180_000}})
+    # ensure_ascii JSON escapes make this larger than 1 MiB although UTF-8 input is smaller.
+    error = json.loads(output.getvalue())
+    assert error['id'] == 'large' and error['error']['code'] == 'RESPONSE_TOO_LARGE'
+    assert len(output.getvalue()) - 1 < MAX_MESSAGE_BYTES
+    envelope = {'type': 'response', 'id': 'boundary', 'ok': True, 'result': ''}
+    base_size = len(encode(envelope)) - 1
+    envelope['result'] = 'x' * (MAX_MESSAGE_BYTES - base_size)
+    assert len(encode(envelope)) - 1 == MAX_MESSAGE_BYTES
+    envelope['result'] += 'x'
+    write(output, envelope)
+    assert json.loads(output.getvalue().splitlines()[-1])['error']['code'] == 'RESPONSE_TOO_LARGE'

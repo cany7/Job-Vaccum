@@ -49,7 +49,7 @@ class Service:
         self.operations = {}
         self.inbox = inbox
 
-    def dispatch(self, method, params):
+    def dispatch(self, method, params, request_id=None):
         if method == "app.ping":
             if set(params) != {"message"} or not isinstance(params["message"], str) or len(params["message"]) > 256:
                 raise CommandError("app.ping requires a message string of at most 256 characters.")
@@ -71,8 +71,8 @@ class Service:
             "queries.save": self.repo.query_save, "queries.delete": self.repo.query_delete,
             "applications.add": self.repo.add,
             "applications.add_many": lambda p: self.repo.add(p, many=True),
-            "applications.update": self.repo.update, "applications.set_status": self.repo.set_status,
-            "applications.remove": self.repo.remove, "applications.restore": self.repo.restore,
+            "applications.update": lambda p: self.repo.update(p, response_id=request_id), "applications.set_status": self.repo.set_status,
+            "applications.remove": lambda p: self.repo.remove(p, response_id=request_id), "applications.restore": self.repo.restore,
         }
         if method in commands:
             return commands[method](params)
@@ -87,7 +87,7 @@ class Service:
         if method == "dev.import_synthetic" and self.enable_dev:
             return import_synthetic(self.repo, params)
         if method == "export.csv":
-            validate_export(params)
+            validate_export(params, self.root / "app.sqlite3")
             if self.operations:
                 raise CommandError("An export is already running.", "BUSY")
             operation_id = str(uuid4())
@@ -162,7 +162,7 @@ def serve(root: Path, source: BinaryIO, destination: BinaryIO, *, clock=now_ms, 
             succeeded = False
             try:
                 request_id, method, request = decode(payload)
-                result = service.dispatch(method, validate(request))
+                result = service.dispatch(method, validate(request), request_id)
                 response = {"type": "response", "id": request_id, "ok": True, "result": result}
                 succeeded = True
             except CommandError as exc:

@@ -56,7 +56,32 @@ def validate(request: dict) -> dict:
     return params
 
 
+def response_too_large(request_id):
+    return {"type": "response", "id": request_id, "ok": False,
+            "error": {"code": "RESPONSE_TOO_LARGE", "message":
+                      "Response exceeds the 1 MiB limit. Reduce the page size or selection.",
+                      "retryable": False}}
+
+
+def encode(message: dict) -> bytes:
+    data = json.dumps(message, ensure_ascii=True, allow_nan=False,
+                      separators=(",", ":")).encode("utf-8")
+    if len(data) > MAX_MESSAGE_BYTES:
+        raise CommandError(response_too_large(None)["error"]["message"], "RESPONSE_TOO_LARGE")
+    return data + b"\n"
+
+
+def check_result_size(result: dict, request_id="x" * 128) -> None:
+    """Preflight responses that must remain deliverable before a transaction commits."""
+    encode({"type": "response", "id": request_id, "ok": True, "result": result})
+
+
 def write(stream: BinaryIO, message: dict) -> None:
-    stream.write(json.dumps(message, ensure_ascii=True, allow_nan=False,
-                            separators=(",", ":")).encode("utf-8") + b"\n")
+    try:
+        data = encode(message)
+    except CommandError:
+        if message.get("type") != "response":
+            raise
+        data = encode(response_too_large(message["id"]))
+    stream.write(data)
     stream.flush()

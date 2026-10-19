@@ -9,7 +9,7 @@ from job_vaccum.storage.filters import FILTER_FIELDS, build_filter, choice, fiel
 from job_vaccum.storage.repository import JOIN, SELECT, Repository, row_dict
 
 
-def validate_export(params):
+def validate_export(params, database: Path):
     fields(params, {'scope', 'filter', 'range', 'include_jd', 'destination_path'},
            {'scope', 'range', 'include_jd', 'destination_path'})
     scope = choice(params['scope'], 'scope', ('discover', 'applications'))
@@ -18,6 +18,9 @@ def validate_export(params):
     destination = Path(string(params['destination_path'], 'destination_path'))
     if not destination.is_absolute():
         raise CommandError('Export destination must be an absolute trusted path.')
+    destination = destination.resolve()
+    if destination.is_relative_to(database.parent.resolve()):
+        raise CommandError('Choose an export destination outside the application data directory.')
     filters = params.get('filter', {})
     fields(filters, FILTER_FIELDS)
     if filters.get('scope', scope) != scope:
@@ -32,7 +35,7 @@ def iso_time(value):
 
 
 def export_csv(database: Path, params):
-    filters, destination = validate_export(params)
+    filters, destination = validate_export(params, database)
     where, values, order, _, _ = build_filter(filters)
     # A dedicated read-only WAL snapshot leaves the service writer responsive.
     with closing(sqlite3.connect(database.as_uri() + '?mode=ro', uri=True, timeout=5)) as db:

@@ -177,3 +177,38 @@ def test_csv_all_pages_multidirection_bom_full_jd_optional_and_applications(setu
     params['filter'] = {'scope': 'applications'}
     with pytest.raises(CommandError):
         export_csv(root / 'app.sqlite3', params)
+
+
+@pytest.mark.parametrize('target_kind', ['file_symlink', 'parent_symlink', 'data_alias'])
+def test_export_rejects_resolved_data_targets_before_truncation(setup, target_kind):
+    repo, cleanup, root = setup
+    database = root / 'app.sqlite3'
+    outside = root.parent / (root.name + '-outside')
+    outside.mkdir()
+    if target_kind == 'file_symlink':
+        destination = outside / 'export.csv'
+        destination.symlink_to(database)
+    else:
+        alias = outside / 'linked-data'
+        alias.symlink_to(root, target_is_directory=True)
+        destination = alias / ('new.csv' if target_kind == 'parent_symlink' else 'app.sqlite3')
+    with pytest.raises(CommandError, match='outside the application data directory'):
+        export_csv(database, {'scope': 'discover', 'range': 'all', 'include_jd': False,
+                              'destination_path': str(destination)})
+    assert database.read_bytes().startswith(b'SQLite format 3\x00')
+    assert repo.list_jobs({})['total'] == 125
+    assert repo.db.execute('PRAGMA quick_check').fetchone()[0] == 'ok'
+    assert not (root / 'new.csv').exists()
+
+
+def test_export_new_file_in_resolved_external_directory_still_works(setup):
+    repo, cleanup, root = setup
+    outside = root.parent / (root.name + '-external')
+    outside.mkdir()
+    alias = root.parent / (root.name + '-external-link')
+    alias.symlink_to(outside, target_is_directory=True)
+    result = export_csv(root / 'app.sqlite3', {'scope': 'discover', 'range': 'all',
+                        'include_jd': False, 'destination_path': str(alias / 'new.csv')})
+    assert result['row_count'] == 125
+    assert (outside / 'new.csv').read_bytes().startswith(b'\xef\xbb\xbf')
+    assert repo.list_jobs({})['total'] == 125

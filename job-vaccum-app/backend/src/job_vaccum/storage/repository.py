@@ -3,7 +3,7 @@ import sqlite3
 import time
 from uuid import uuid4
 
-from job_vaccum.service.protocol import CommandError
+from job_vaccum.service.protocol import CommandError, check_result_size
 from job_vaccum.storage.filters import (STATUSES, boolean, build_filter, choice, fields,
                                        integer, string, strings)
 
@@ -181,7 +181,7 @@ class Repository:
     def application(self, identifier):
         return next(row_dict(self.db.execute('SELECT * FROM applications WHERE job_id=?', (identifier,))), None)
 
-    def update(self, params):
+    def update(self, params, *, response_id="x" * 128):
         fields(params, {'job_id', 'status', 'notes'}, {'job_id'})
         identifier = string(params['job_id'], 'job_id')
         if not {'status', 'notes'} & params.keys():
@@ -198,6 +198,7 @@ class Repository:
             values = [params[key] for key in ('status', 'notes') if key in params]
             self.db.execute('UPDATE applications SET ' + ','.join([*assignments, 'updated_at=?']) + ' WHERE job_id=?', [*values, self.clock(), identifier])
             result = self.application(identifier)
+            check_result_size(result, response_id)
         return result
 
     def set_status(self, params):
@@ -218,7 +219,7 @@ class Repository:
                 counts[item['outcome']] += 1
         return {'items': items, 'counts': counts}
 
-    def remove(self, params):
+    def remove(self, params, *, response_id="x" * 128):
         fields(params, {'job_ids'}, {'job_ids'})
         ids = strings(params['job_ids'], 'job_ids', 200)
         items, missing = [], []
@@ -231,7 +232,9 @@ class Repository:
                     self.db.execute('DELETE FROM applications WHERE job_id=?', (identifier,))
                 else:
                     missing.append(identifier)
-        return {'items': items, 'removed_count': len(items), 'not_found': missing}
+            result = {'items': items, 'removed_count': len(items), 'not_found': missing}
+            check_result_size(result, response_id)
+        return result
 
     def restore(self, params):
         fields(params, {'items'}, {'items'})
