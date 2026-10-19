@@ -393,7 +393,7 @@ test('export dialog, Settings Searches and Data', async () => {
     await software.getByRole('button', { name: 'Rename' }).click();
     const name = page.getByRole('textbox', { name: 'Search name' });
     await name.fill('  ');
-    await page.getByRole('button', { name: 'Save' }).click();
+    await page.getByRole('table', { name: 'Searches' }).getByRole('button', { name: 'Save' }).click();
     await expect(page.getByRole('alert').filter({ hasText: 'Enter a name.' })).toBeVisible();
     await name.fill('Platform');
     await page.keyboard.press('Enter');

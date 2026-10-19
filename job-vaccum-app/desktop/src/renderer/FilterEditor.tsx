@@ -1,6 +1,7 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 import type { ApplicationStatus, Direction, JobSummary, ScoreState } from "./api";
-import { jobTypeLabel, knownJobTypes, knownSites, salaryIntervals, scoreStateLabels, scoreStates, siteLabel, statusLabels, statuses } from "./format";
+import type { RunsState } from "./context";
+import { batchLabel, jobTypeLabel, knownJobTypes, knownSites, salaryIntervals, scoreStateLabels, scoreStates, siteLabel, statusLabels, statuses } from "./format";
 import { filterNames, quickRangeLabel, quickRanges, withoutKey, type DateRange, type FilterKey, type ListFilter, type Salary } from "./listModel";
 import { Popover } from "./ui";
 
@@ -10,6 +11,8 @@ interface EditorProps {
   anchor: HTMLElement;
   directions: Direction[];
   counts: Record<string, number>;
+  /** Retrieval runs offered as batches (Jobs only). */
+  runs: RunsState;
   /** Rows on the current page, used to offer company, location, type and source values. */
   items: JobSummary[];
   onApply: (filter: ListFilter) => void;
@@ -128,6 +131,7 @@ function EditorBody({
   change,
   directions,
   counts,
+  runs,
   items,
 }: EditorProps & { draft: ListFilter; change: (next: Partial<ListFilter>) => void }) {
   switch (field) {
@@ -148,6 +152,8 @@ function EditorBody({
       ) : (
         <p className="muted small">No searches yet.</p>
       );
+    case "run_ids":
+      return <BatchBody runs={runs} values={draft.run_ids} onChange={(run_ids) => change({ run_ids })} />;
     case "score":
       return <ScoreBody draft={draft} change={change} />;
     case "in_applications":
@@ -230,6 +236,40 @@ function EditorBody({
     case "text":
       return null;
   }
+}
+
+/** All, or one or more runs; each job belongs to the run that first found it. */
+function BatchBody({ runs, values, onChange }: { runs: RunsState; values: string[] | undefined; onChange: (values: string[]) => void }) {
+  if (runs.error && !runs.items.length) return <p className="field-error">Couldn't load runs. {runs.error.message}</p>;
+  if (!runs.loaded) return <p className="muted small">Loading runs…</p>;
+  // A chosen run that is no longer listed stays visible so it can be unchecked.
+  const listed = new Set(runs.items.map((run) => run.id));
+  const extra = (values ?? []).filter((id) => !listed.has(id));
+  return (
+    <>
+      <label className="check-row">
+        <input type="checkbox" className="checkbox" checked={!values?.length} onChange={() => onChange([])} />
+        <span className="check-label">All batches</span>
+      </label>
+      {runs.items.length || extra.length ? (
+        <div className="scroll-list">
+          <Checks
+            label="Batches"
+            options={[...runs.items.map((run) => run.id), ...extra]}
+            values={values}
+            onChange={onChange}
+            render={(id) => {
+              const run = runs.items.find((item) => item.id === id);
+              return run ? batchLabel(run) : "Earlier run";
+            }}
+          />
+        </div>
+      ) : (
+        <p className="muted small">No runs yet.</p>
+      )}
+      <p className="muted small">Shows jobs first found by the chosen runs. Jobs found again later stay with their first run.</p>
+    </>
+  );
 }
 
 function ScoreBody({ draft, change }: { draft: ListFilter; change: (next: Partial<ListFilter>) => void }) {
@@ -504,7 +544,7 @@ function validate(field: FilterKey, draft: ListFilter): string | null {
 /** Drops empty values so an applied editor never leaves a no-op chip. */
 function normalize(field: FilterKey, draft: ListFilter): ListFilter {
   const next = { ...draft };
-  for (const key of ["direction_ids", "sources", "companies", "locations", "job_types", "score_states", "application_statuses"] as const) {
+  for (const key of ["direction_ids", "run_ids", "sources", "companies", "locations", "job_types", "score_states", "application_statuses"] as const) {
     if (!next[key]?.length) delete next[key];
   }
   if (next.in_applications === undefined) delete next.in_applications;

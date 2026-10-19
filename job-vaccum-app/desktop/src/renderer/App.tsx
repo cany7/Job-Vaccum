@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { call, type ApiResult, type AppInfo, type ConnectionState, type JobVaccumApi, type ServiceEvent } from "./api";
-import { AppContext, type AppContextValue, type Catalog, type OperationResult, type Page, type SettingsSection } from "./context";
+import { AppContext, type AppContextValue, type Catalog, type OperationResult, type Page, type RunsState, type SettingsSection } from "./context";
 import { BackendStopped, StartupFailure } from "./Failure";
-import { JobsIcon, SearchesIcon, SearchIcon, SettingsIcon, ShortlistIcon, SidebarIcon } from "./icons";
+import { formatRunTime, runStageLabels, runStatusLabels } from "./format";
+import { JobsIcon, RunsIcon, SearchesIcon, SearchIcon, SettingsIcon, ShortlistIcon, SidebarIcon } from "./icons";
 import type { ListPage } from "./listModel";
 import { ListView, type TopbarSlots } from "./ListView";
 import { updateList, useNarrow, usePrefs, type UiPrefs, type UpdatePrefs } from "./prefs";
+import { Runs } from "./Runs";
 import { Settings } from "./Settings";
 import { ToastProvider, useToast } from "./toasts";
 import { Menu, Popover } from "./ui";
 
-const pageNames: Record<Page, string> = { jobs: "Jobs", shortlist: "Shortlist", settings: "Settings" };
+const pageNames: Record<Page, string> = { jobs: "Jobs", shortlist: "Shortlist", runs: "Runs", settings: "Settings" };
 
 export function App() {
   const api = window.jobVaccum;
@@ -59,7 +61,7 @@ function Root({ api }: { api: JobVaccumApi }) {
   );
 }
 
-const emptyCatalog: Catalog = { directions: [], retentionDays: null, jobs: null, shortlist: null, byDirection: {} };
+const emptyCatalog: Catalog = { directions: [], settings: null, retentionDays: null, jobs: null, shortlist: null, byDirection: {} };
 
 /** Searches, retention and the sidebar counts (Jobs, Shortlist, each search). */
 function useCatalog(api: JobVaccumApi, ready: boolean) {
@@ -81,6 +83,7 @@ function useCatalog(api: JobVaccumApi, ready: boolean) {
       if (id !== sequence.current) return;
       setCatalog((previous) => ({
         directions: directions ?? previous.directions,
+        settings: settings.ok ? settings.result : previous.settings,
         retentionDays: settings.ok ? settings.result.retention_days : previous.retentionDays,
         jobs,
         shortlist,
@@ -91,6 +94,30 @@ function useCatalog(api: JobVaccumApi, ready: boolean) {
   }, [api, ready]);
   useEffect(refresh, [refresh]);
   return [catalog, refresh] as const;
+}
+
+const RUN_PAGE_SIZE = 200;
+
+/** Retrieval runs for Runs, batch filters and the sidebar; the active run comes from app.status. */
+function useRuns(api: JobVaccumApi, ready: boolean) {
+  const [runs, setRuns] = useState<RunsState>({ items: [], total: 0, active: null, loaded: false });
+  const sequence = useRef(0);
+  const refresh = useCallback(() => {
+    if (!ready) return;
+    const id = ++sequence.current;
+    void Promise.all([call(() => api.listRuns({ page_size: RUN_PAGE_SIZE })), call(() => api.getStatus())]).then(([list, status]) => {
+      if (id !== sequence.current) return;
+      setRuns((previous) => ({
+        items: list.ok ? list.result.items : previous.items,
+        total: list.ok ? list.result.total : previous.total,
+        active: status.ok ? status.result.active_run : previous.active,
+        loaded: previous.loaded || list.ok,
+        error: list.ok ? undefined : list.error,
+      }));
+    });
+  }, [api, ready]);
+  useEffect(refresh, [refresh]);
+  return [runs, refresh] as const;
 }
 
 function Shell({
@@ -120,9 +147,11 @@ function Shell({
   const collapsed = narrow ? !expandedWhileNarrow : prefs.sidebarCollapsed;
   const stopped = connection?.phase === "exited" ? connection : null;
   const ready = connection?.phase === "ready";
-  const activeList: ListPage = page === "settings" ? lastList : page;
+  const activeList: ListPage = page === "settings" || page === "runs" ? lastList : page;
 
   const [catalog, refreshCatalog] = useCatalog(api, ready);
+  const [runs, refreshRuns] = useRuns(api, ready);
+  const [runVersion, setRunVersion] = useState(0);
   const [dataVersion, setDataVersion] = useState(0);
   const [outsideChanges, setOutsideChanges] = useState(0);
   // jobs.changed events still expected for this window's own successful requests.
@@ -137,6 +166,9 @@ function Shell({
           if (ownChanges.current > 0) ownChanges.current -= 1;
           else setOutsideChanges((value) => value + 1);
           refreshCatalog();
+        } else if (event.name === "run.updated" || event.name === "run.stats" || event.name === "cleanup.completed") {
+          refreshRuns();
+          setRunVersion((value) => value + 1);
         } else if (event.name === "operation.completed" || event.name === "operation.failed") {
           const result: OperationResult =
             event.name === "operation.completed" ? { ok: true, row_count: event.data.row_count } : { ok: false, error: event.data.error };
@@ -147,20 +179,30 @@ function Shell({
           } else operations.current.set(event.data.operation_id, result);
         }
       }),
-    [api, refreshCatalog],
+    [api, refreshCatalog, refreshRuns],
   );
 
   const navigate = useCallback((next: Page, nextSection?: SettingsSection) => {
     setPage(next);
-    if (next !== "settings") setLastList(next);
+    if (next === "jobs" || next === "shortlist") setLastList(next);
     if (nextSection) setSection(nextSection);
   }, []);
+  const openBatch = useCallback(
+    (runId: string) => {
+      updateList(updatePrefs, "jobs", { filter: { run_ids: [runId] } });
+      navigate("jobs");
+    },
+    [updatePrefs, navigate],
+  );
 
   const context = useMemo<AppContextValue>(
     () => ({
       api,
       catalog,
       refreshCatalog,
+      runs,
+      refreshRuns,
+      runVersion,
       mutate: async <T,>(request: () => Promise<ApiResult<T>>, emitsChange = true) => {
         if (emitsChange) ownChanges.current += 1;
         const response = await call(request);
@@ -180,9 +222,10 @@ function Shell({
         return new Promise((resolve) => waiting.current.set(operationId, resolve));
       },
       navigate,
+      openBatch,
       narrow,
     }),
-    [api, catalog, refreshCatalog, dataVersion, outsideChanges, navigate, narrow],
+    [api, catalog, refreshCatalog, runs, refreshRuns, runVersion, dataVersion, outsideChanges, navigate, openBatch, narrow],
   );
 
   // Filters on a search that no longer exists are dropped, with a note.
@@ -201,6 +244,38 @@ function Shell({
     // Only a changed set of searches can make a filter stale.
   }, [catalog.directions]);
 
+  // Batch filters on runs removed by cleanup are dropped, with a note. Runs past the
+  // listed newest ones are checked one by one before they count as gone.
+  useEffect(() => {
+    if (!runs.loaded || runs.error) return;
+    const chosen = prefs.lists.jobs.filter.run_ids ?? [];
+    const listed = new Set(runs.items.map((run) => run.id));
+    const unlisted = chosen.filter((id) => !listed.has(id));
+    if (!unlisted.length) return;
+    let cancelled = false;
+    void (async () => {
+      const gone = new Set<string>();
+      for (const id of unlisted) {
+        if (runs.total <= runs.items.length) gone.add(id);
+        else {
+          const response = await call(() => api.getRunDetail({ run_id: id, task_page_size: 1 }));
+          if (!response.ok && response.error.code === "NOT_FOUND") gone.add(id);
+        }
+      }
+      if (cancelled || !gone.size) return;
+      updatePrefs((previous) => {
+        const filter = previous.lists.jobs.filter;
+        const kept = (filter.run_ids ?? []).filter((id) => !gone.has(id));
+        return { lists: { ...previous.lists, jobs: { ...previous.lists.jobs, filter: { ...filter, run_ids: kept.length ? kept : undefined } } } };
+      });
+      toast({ text: "A batch filter for a run that no longer exists was removed." });
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Only a changed run list can make a batch filter stale.
+  }, [runs]);
+
   const toggleSidebar = () => {
     updatePrefs({ sidebarCollapsed: !collapsed });
     if (narrow) setExpandedWhileNarrow(collapsed);
@@ -209,7 +284,7 @@ function Shell({
   const searchInput = useRef<HTMLInputElement>(null);
   const [railSearch, setRailSearch] = useState(false);
   const focusSearch = () => {
-    if (page === "settings") navigate(lastList);
+    if (page === "settings" || page === "runs") navigate(lastList);
     if (collapsed) setRailSearch(true);
     else searchInput.current?.focus();
   };
@@ -238,7 +313,7 @@ function Shell({
   const chooseDirection = (id: string | null) => {
     const list = activeList;
     updateList(updatePrefs, list, { filter: { ...prefs.lists[list].filter, direction_ids: id ? [id] : undefined } });
-    if (page === "settings") navigate(list);
+    if (page === "settings" || page === "runs") navigate(list);
   };
 
   return (
@@ -272,6 +347,7 @@ function Shell({
           inert={stopped !== null}
           ready={ready}
           catalog={catalog}
+          runs={runs}
           selectedDirections={prefs.lists[activeList].filter.direction_ids ?? []}
           onDirection={chooseDirection}
           searchText={searchText}
@@ -304,6 +380,7 @@ function Shell({
                   <p className="muted">Starting Job Vaccum…</p>
                 </div>
               ) : null}
+              {ready && page === "runs" ? <Runs slots={slots} /> : null}
               {page === "settings" ? (
                 <Settings
                   api={api}
@@ -336,6 +413,16 @@ function statusOf(connection: ConnectionState | null) {
   }
 }
 
+/** Run line under the connection status: the active run, else when the last run started. */
+function runText(runs: RunsState) {
+  if (runs.active) {
+    const stage = runs.active.stage ? ` · ${runStageLabels[runs.active.stage]}` : "";
+    return runs.active.status === "stopping" ? "Stopping run…" : `Run in progress${stage}`;
+  }
+  const last = runs.items[0];
+  return last ? `Last run ${formatRunTime(last.started_at)} · ${runStatusLabels[last.status]}` : null;
+}
+
 function Sidebar(props: {
   collapsed: boolean;
   page: Page;
@@ -345,6 +432,7 @@ function Sidebar(props: {
   inert: boolean;
   ready: boolean;
   catalog: Catalog;
+  runs: RunsState;
   selectedDirections: string[];
   onDirection: (id: string | null) => void;
   searchText: string;
@@ -355,6 +443,7 @@ function Sidebar(props: {
 }) {
   const { collapsed, page, catalog } = props;
   const status = statusOf(props.connection);
+  const run = runText(props.runs);
   const counts: Partial<Record<Page, number | null>> = { jobs: catalog.jobs, shortlist: catalog.shortlist };
   const searchButton = useRef<HTMLButtonElement>(null);
   const item = (id: Page, icon: ReactNode) => (
@@ -430,6 +519,7 @@ function Sidebar(props: {
       <nav className="nav" aria-label="Main">
         {item("jobs", <JobsIcon />)}
         {item("shortlist", <ShortlistIcon />)}
+        {item("runs", <RunsIcon />)}
         {collapsed && catalog.directions.length ? <RailSearches {...props} /> : null}
       </nav>
       {!collapsed && catalog.directions.length ? (
@@ -440,12 +530,17 @@ function Sidebar(props: {
       ) : null}
       <div className="sidebar-footer">
         <nav aria-label="Settings">{item("settings", <SettingsIcon />)}</nav>
-        <div className="sidebar-status" data-tone={status.tone} title={collapsed ? status.text : undefined}>
+        <div
+          className="sidebar-status"
+          data-tone={status.tone === "ok" && run ? "running" : status.tone}
+          title={collapsed ? (run ? `${status.text} · ${run}` : status.text) : undefined}
+        >
           <span className="dot" aria-hidden="true" />
           <span className={collapsed ? "visually-hidden" : undefined} role="status">
             {status.text}
           </span>
         </div>
+        {!collapsed && props.ready && run ? <div className="sidebar-run">{run}</div> : null}
       </div>
     </aside>
   );
@@ -460,7 +555,7 @@ function SearchesList(props: Parameters<typeof Sidebar>[0]) {
         key={id ?? "all"}
         type="button"
         className="search-item"
-        aria-current={current && props.page !== "settings" ? "true" : undefined}
+        aria-current={current && (props.page === "jobs" || props.page === "shortlist") ? "true" : undefined}
         onClick={() => props.onDirection(id)}
       >
         <span className="nav-label">{name}</span>
@@ -488,7 +583,7 @@ function RailSearches(props: Parameters<typeof Sidebar>[0]) {
   };
   const { catalog, selectedDirections } = props;
   const isCurrent = (id: string | null) =>
-    props.page !== "settings" && (id === null ? selectedDirections.length === 0 : selectedDirections.length === 1 && selectedDirections[0] === id);
+    (props.page === "jobs" || props.page === "shortlist") && (id === null ? selectedDirections.length === 0 : selectedDirections.length === 1 && selectedDirections[0] === id);
   return (
     <>
       <button

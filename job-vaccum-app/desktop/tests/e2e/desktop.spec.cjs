@@ -64,7 +64,9 @@ test('shell, About with real backend, close/reopen, single instance and Quit', {
     await nav(page, 'Shortlist').click();
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Shortlist');
     await expect(page.getByText('Your Shortlist is empty')).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Runs/ })).toHaveCount(0);
+    await nav(page, 'Runs').click();
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Runs');
+    await expect(page.getByRole('heading', { name: 'No runs yet' })).toBeVisible();
     expect(await page.locator('.topbar').evaluate(el => getComputedStyle(el).webkitAppRegion)).toBe('drag');
     expect(await page.getByRole('button', { name: 'Hide sidebar' }).evaluate(el => getComputedStyle(el).webkitAppRegion)).toBe('no-drag');
 

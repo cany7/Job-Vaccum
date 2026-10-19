@@ -1,12 +1,12 @@
 # 开发状态
 
-最新状态：2026-10-19 M2 第 1 步已合入 main，M2 整阶段未完成。CI 配置通过 PR #3 自动合并，此前 main / codex/dev / claude/dev-env 已同步 c01bdb4（README 通过 PR #4 合入）；本轮 Codex 已同步 PR #5 的 0c3202a，文档纳入 Git 的交付见文末；两个活动工作区分别使用 codex/dev、claude/dev-env。GitHub 必需检查和 auto-merge 已启用，PR 与合并后 main CI 均通过；见文末。
+最新状态：2026-10-19 M2 第 2 步（renderer 界面）由 Claude 在 claude/dev-env 完成并按授权提 PR（见文末「M2 第 2 步」）；M2 真实平台极小范围抓取与 M2 安装包验收仍未做，M2 出口未全部满足。此前：M2 第 1 步已合入 main。CI 配置通过 PR #3 自动合并，此前 main / codex/dev / claude/dev-env 已同步 c01bdb4（README 通过 PR #4 合入）；本轮 Codex 已同步 PR #5 的 0c3202a，文档纳入 Git 的交付见文末；两个活动工作区分别使用 codex/dev、claude/dev-env。GitHub 必需检查和 auto-merge 已启用，PR 与合并后 main CI 均通过；见文末。
 
 ## 当前交接摘要（2026-10-19）
 
 - 文档管理：按用户最新要求，AGENTS.md 和 dev-docs/ 从本次提交起纳入 Git；.agents/ 仍本地忽略。下方历史记录中的“开发文档仅本地维护”不再是当前规则。
 
-- M0、M1 已完成；M2 第 1 步（检索后端、运行协议、桌面桥接）已通过 PR #2 合入。M2 的 Runs、手动配置、批次筛选与失效提示界面尚未完成，M3 实际评分及后续阶段未交付；本次文档核对不启动开发阶段。
+- M0、M1 已完成；M2 第 1 步（检索后端、运行协议、桌面桥接）已通过 PR #2 合入。M2 第 2 步 renderer（Runs 页、手动配置、批次筛选与失效提示）已完成，Runs 页**布局待确认**；M2 真实平台验证、安装包验收、M3 实际评分及后续阶段未交付。
 - 最近完整开发版 E2E 记录为 PR #2 合并后 **18 passed**；后续 CI 配置与 README 交付的验证为 **117 项后端、12 项 Node 测试及类型检查/构建、5 项 E2E 冒烟**。PR #4 与其合并后 main CI 均通过；不能将五项冒烟写成重新通过全部 E2E。
 - M2 版本尚未重新打包或验收安装副本；之前 M0/M1 安装包记录只证明当时版本。真实网站、真实代理、付费模型、第二台物理 Mac、正式签名与公证仍未验证。既有 E2E request failures / Markdown 场景曾间歇性超时，复验通过，但根因未确认修复。
 - 当前仅两个活动目录：`job-vaccum-gui` 使用 `codex/dev`，`job-vaccum-gui-claude` 使用 `claude/dev-env`；main 无目录签出。默认本地提交，获准推送交付后创建/更新 PR 并开启 auto-merge；必需 CI 通过后合并，不绕过保护。
@@ -648,3 +648,53 @@ main E2E 的带 trace 单项复验及最终核对结果见下方补充与最终�
 ## 开发文档纳入版本控制（2026-10-19）
 
 用户授权解除 AGENTS.md、dev-docs/ 的忽略并提交推送，随后同步两个开发分支。变更前逐文件比较两个目录，AGENTS.md 与 11 份开发文档完全一致，无需合并独有记录。更新 .gitignore、AGENTS.md 的文档维护规则和仓库 README 入口；.agents/ 继续忽略。仅文档及忽略规则变更，未改产品代码或依赖，未重复运行本地产品测试；推送后按既有 PR 必需 CI 与自动合并流程交付，实际远端结果以 PR/Actions 为准。
+
+
+## M2 第 2 步：renderer 界面（2026-10-19，Claude）
+
+### 授权与范围
+
+用户授权 M2 前端：按 IMPLEMENTATION-PLAN M2 剩余界面，只改 renderer 及其测试，不改 Python、main、preload；缺接口只记录。开工前就设置范围提问，用户选择「筛除规则与普通代理设置也做」。明确不做：Score 菜单与模型设置（M3）、Resume 与 interrupted 专门处理（M4）。完成后按 AGENTS 推送并创建 PR、开启自动合并。读过 AGENTS、dev-docs 全部相关章节和两个设计 skill（`.agents/skills/apple-design/SKILL.md`、`.agents/skills/emil-design-eng/SKILL.md`）。分支 claude/dev-env，开工时与 origin/main（fb1e0a6）一致。
+
+### 实际交付
+
+- **Runs 页（布局待确认）**：SPEC 未给 Runs 布局，沿用卡片、侧列表、表格、横幅等现有组件做简洁版。侧边栏与折叠窄条新增 Runs 入口；顶部「Next run」说明 runs.preview 的任务数、各平台目标、发布时间范围、自动评分开关，不能运行时写明原因并链到对应设置分区；顶栏唯一主按钮 Run now（无效配置、已有运行或请求进行中禁用，不自动重发，返回后重查 app.status），运行中出现 Stop（stopping 时为 Stopping… 禁用）。左侧运行历史（开始时间、状态、新增数，最多 200 条），右侧详情：状态、完成时间与耗时、抓取/评分分别的任务进度（完成/失败/运行/等待/取消，无动效进度条），本轮自动评分关闭时写明；Received、Filtered out、Matched jobs、New jobs（「N new」打开按该批次筛选的 Jobs）；按方向统计表；抓取任务表（query、地点与半径、平台、状态、尝试次数、计数、失败原因、零结果「No results」、缺 JD、429、warnings，筛除原因在悬停提示），任务 50 条分页。run.updated / run.stats / cleanup.completed 事件驱动刷新列表与详情，不解析日志、不轮询。
+- **侧边栏运行状态**：连接状态下方显示「Run in progress · 阶段」/「Stopping run…」/「Last run 时间 · 状态」；折叠窄条运行中状态点用强调色并在悬停提示中写出。下次运行属于 M7 计划，未做。
+- **Jobs 批次筛选**：+ Filter 增加 Batch（仅 Jobs），All batches＋多选运行，选项为「Oct 18, 09:00 · 42 new」；FilterSpec run_ids 由 renderer 传给后端；标签「Batch: …」，筛选记忆存本机 UI 偏好，重启保持。运行列表变化时检查失效批次：不在列表中的运行在总数超过 200 时逐个 runs.detail 确认 NOT_FOUND，确认后移除并提示「A batch filter for a run that no longer exists was removed.」。
+- **Settings › Searches**：新增 Add search、每个方向的开关、展开编辑 queries（添加、编辑需 Return/Save、空值在输入框下提示、开关、删除不确认）；勾选框即时反映、保存失败回退。下方「Locations and sites」：城市列表（开关、地点、半径英里、删除、添加，默认半径 50）、Indeed 国家（说明 LinkedIn 只用 location）、LinkedIn/Indeed 平台；整组为草稿，Save 写入，非法半径/空地点/空国家在字段下提示且不保存，可 Discard changes；勾选 LinkedIn 时提示限流与代理。
+- **Settings › Filters & scoring**：自动评分开关（无评分模板时只能关闭，关闭后禁用并说明原因；开启/关闭仅影响新运行）；筛除规则：说明始终生效的公司排除/空记录/明确兼职，公司名单多行粘贴去重，7 个可选规则各有作用说明，经验年限、签证担保、工作授权、语言、毕业日期、学历输入，Save 写入、非法年限提示。评分模板编辑留 M3。
+- **Settings › Proxy**：直连／普通代理二选一，地址只允许无认证 http/https/socks5 origin，本地校验后由后端再校验；Sign-in 用户名与密码由 renderer 拼成带认证的同 endpoint URL 交给既有 setProxyCredential（main safeStorage），只显示「已保存」，可替换或移除，不回显。
+- **Settings › Data**：清理预览与确认框、结果提示加入运行记录数量。Settings 切换分区时回到顶部。
+- 未新增依赖、业务表或 service 命令；未改 Python、main、preload、shared 类型和 CONTRACTS。
+
+### 缺口与限制（未自行补接口）
+
+- 后端默认 cities 为空，SPEC「预置美国城市」没有来源；renderer 未自行内置城市，新用户需手动添加（可在 M5 引导或后端默认值中补齐，需决定）。
+- queries 由后端按随机 UUID 排序，没有创建顺序字段；renderer 改为按文本排序显示，以免新增 query 位置跳动。
+- runs 统计只有总筛除数和每任务 filter_reasons，没有运行级「按规则」筛除汇总；Runs 页只在任务行悬停提示中显示原因，不分页汇总全部任务。
+- runs.list 每页最多 200：历史、批次选项只列最新 200 次运行，更早的运行在批次标签中显示为「Earlier run」。
+- Stop 时 SPEC 要求的「剩余请求数」依赖 M3 评分请求；本步只显示任务计数。interrupted 只按后端返回值显示状态文字，没有续跑入口（M4）。
+- 日期输入框（毕业日期、既有日期筛选）使用 Chromium 原生控件，按系统区域显示（本机为中文格式）；未改。
+
+### 实际命令与结果（macOS 27.0.1 arm64，Node 26.12.0，Python 3.13.12，依赖与 lockfile 未变）
+
+| 命令／检查 | 结果 |
+| --- | --- |
+| desktop `npm test` | 类型检查、构建通过，12 Node tests passed（约 12.5 秒） |
+| backend `uv run --locked pytest -q` | 117 passed，2.41 秒（后端未改，仅确认） |
+| desktop `npm run test:e2e` | **21 passed，约 1.2 分钟**：原 18 项（仅更新两处断言：Runs 入口现在存在；Searches 页改名 Save 限定在表格内）＋新 `tests/e2e/runs.spec.cjs` 3 项 |
+| `git diff --check` | 通过 |
+
+新 E2E 覆盖：预先写入的合成运行（成功、部分完成）在 Runs 页的列表顺序、状态、耗时、进度、自动评分关闭说明、总计、按方向表、失败原因/零结果/缺 JD/429/筛除原因提示；「3 new」进入批次筛选、批次编辑器多选、Shortlist 无 Batch、重启保持；Clear job data 确认含运行数、清理后批次筛选移除并提示、Runs 空状态。Run now/Stop 在 Electron IPC 边界替换 runs:start/stop/list/detail 与 app:status，并由 main 发送 run.updated 事件：验证请求进行中按钮禁用且只发一次、运行中阶段、Stop→Stopping…→Stopped、侧边栏运行文字、进度计数。新用户 Runs 显示不能运行的原因与链接；Searches 新增方向/空名、query 增改删开关；Locations 非法半径与空国家不保存、保存后后端值一致；自动评分关闭后无模板不可再开、Runs 可运行；规则非法年限、保存后后端 rules 完全一致；代理拒绝带认证地址、保存 origin、Sign-in 空值提示、在 main 内替换 safeStorage（不触碰 Keychain）后保存/移除凭据且设置中无密码、preview 接受凭据；重启后设置保持；640×480 下 Runs 与 Settings 无页面溢出。
+
+**没有任何测试启动真实运行**：Run now 仅在替换 IPC 后点击，其余测试从不点击，未访问 LinkedIn/Indeed，未使用真实代理或付费模型。
+
+### 视觉检查（实际查看截图）
+
+1280×800 浅色 Graphite：Runs（列表＋部分完成/完成详情）、Searches（展开 queries）、Locations and sites、Filters & scoring（上下两屏）、Proxy、Jobs 批次编辑器；深色 Graphite Runs 空状态；640×480 Runs。发现并修复：切换设置分区保留上一分区滚动位置；语言/学历输入换行到标签下方；无代理地址时提示右对齐。640 截图中 Run now 偏灰为启用时 150ms 透明度过渡中的帧（计算样式确认已启用），非问题。新增界面无动画；高频操作（勾选、切换运行）无动效，reduced-motion 下沿用既有按钮规则。
+
+### 未完成
+
+- M2 出口仍需：获得测试条件后的两个平台极小范围真实抓取；M2 版本重新打包与安装副本验收。均未执行。
+- Runs 页布局待用户确认后再定稿。
+

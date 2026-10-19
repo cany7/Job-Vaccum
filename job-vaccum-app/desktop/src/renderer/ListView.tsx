@@ -5,7 +5,7 @@ import { useApp } from "./context";
 import { Detail, postingUrl } from "./Detail";
 import { ExportDialog, ShortcutsDialog } from "./dialogs";
 import { FilterEditor } from "./FilterEditor";
-import { plural, statusLabels, statuses } from "./format";
+import { formatRunTime, plural, statusLabels, statuses } from "./format";
 import { AlertIcon, ChevronDown, ChevronLeft, ChevronRight, CloseIcon, JobsIcon, SearchIcon, ShortlistIcon } from "./icons";
 import { JobTable } from "./JobTable";
 import {
@@ -64,7 +64,7 @@ export function ListView({
   slots: TopbarSlots;
   onEditSearch: () => void;
 }) {
-  const { api, catalog, mutate, dataVersion, outsideChanges, waitForOperation, navigate, narrow } = useApp();
+  const { api, catalog, runs, mutate, dataVersion, outsideChanges, waitForOperation, navigate, narrow } = useApp();
   const toast = useToast();
   const scope = scopeOf(page);
   const spec = useMemo(() => toFilterSpec(page, prefs.filter), [page, prefs.filter]);
@@ -401,6 +401,11 @@ export function ListView({
   };
 
   const directionName = (id: string) => catalog.directions.find((direction) => direction.id === id)?.name ?? "Deleted search";
+  const runName = (id: string) => {
+    const run = runs.items.find((item) => item.id === id);
+    return run ? formatRunTime(run.started_at) : "Earlier run";
+  };
+  const names = { direction: directionName, run: runName };
   const keys = activeKeys(prefs.filter);
   const total = data?.total ?? 0;
   const scopeCount = page === "jobs" ? catalog.jobs : catalog.shortlist;
@@ -523,7 +528,7 @@ export function ListView({
         {count ? <span className="selected-count">{count} selected</span> : null}
         <div className="chips" role="list" aria-label="Filters">
           {keys.map((key) => {
-            const label = chipLabel(key, prefs.filter, directionName);
+            const label = chipLabel(key, prefs.filter, names);
             return (
               <span key={key} className="chip" role="listitem">
                 <button
@@ -757,6 +762,7 @@ export function ListView({
           anchor={editor.anchor}
           directions={catalog.directions}
           counts={catalog.byDirection}
+          runs={runs}
           items={items}
           onApply={changeFilter}
           onClose={() => setEditor(null)}
@@ -767,7 +773,7 @@ export function ListView({
           page={page}
           filteredCount={total}
           allCount={scopeCount}
-          summary={keys.length ? keys.map((key) => chipLabel(key, prefs.filter, directionName)).join(" · ") : "No filters"}
+          summary={keys.length ? keys.map((key) => chipLabel(key, prefs.filter, names)).join(" · ") : "No filters"}
           onCancel={() => setDialog(null)}
           onExport={startExport}
         />
