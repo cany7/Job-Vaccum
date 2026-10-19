@@ -38,7 +38,7 @@ def test_upgrade_m0_preserves_settings_and_migration_002_failure(tmp_path):
         assert db.execute('SELECT version FROM schema_version').fetchone()[0] == 1
         assert db.execute("SELECT name FROM sqlite_master WHERE name='partial'").fetchone() is None
     with closing(connect(path)) as db:
-        assert db.execute('SELECT version FROM schema_version').fetchone()[0] == 2
+        assert db.execute('SELECT version FROM schema_version').fetchone()[0] == 3
         assert db.execute("SELECT value_json FROM settings WHERE key='existing'").fetchone()[0] == 'true'
         assert db.execute('PRAGMA foreign_key_check').fetchall() == []
 
@@ -158,7 +158,7 @@ def test_direction_rename_reorder_delete_and_query_delete(repo):
     {'first_seen_from': 2, 'first_seen_to': 1}, {'application_statuses': []}, {'added_from': 0},
     {'salary_min': 1}, {'salary_min': float('inf'), 'salary_currency': 'USD', 'salary_interval': 'yearly'},
     {'salary_min': 5, 'salary_max': 1, 'salary_currency': 'USD', 'salary_interval': 'yearly'},
-    {'run_ids': ['future-m2']}, {'unexpected': 'field'}, {'scope': []},
+    {'unexpected': 'field'}, {'scope': []},
 ])
 def test_filter_validation_rejects_invalid_params(repo, params):
     with pytest.raises(CommandError):

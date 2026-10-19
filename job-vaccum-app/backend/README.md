@@ -3,8 +3,8 @@
 Python 3.13 service, UTF-8 JSON Lines on stdin/stdout. Only Python owns
 `app.sqlite3`. Migration 001 creates settings; migration 002 adds jobs,
 identities, directions/queries, job directions and applications. Existing M0
-settings survive migration. Scraping, scoring, runs and scheduling belong to
-later milestones; this step has no renderer business interface.
+settings survive migration. M2 adds retrieval and runs (see below); scoring
+execution and scheduling remain later milestones.
 
 From the repository root:
 
@@ -18,14 +18,14 @@ uv run --locked python -m job_vaccum --data-dir "$(git rev-parse --show-toplevel
 the packaged application. The service creates `logs/`, `tmp/`, `app.sqlite3`,
 and a persistent `service.lock` file. The OS releases the advisory lock on exit
 or crash; do not unlink the lock file or kill processes based on its existence.
-Startup clears App-owned tmp resources and checks retention; automatic cleanup checks every 60 seconds while the service is running. No run recovery is implemented yet.
+Startup clears App-owned tmp resources and checks retention; automatic cleanup checks every 60 seconds while the service is running. Unfinished runs become interrupted; resume preserves stable task IDs.
 
 ## Protocol v1
 
 First output, only after the lock and migrations succeed:
 
 ```json
-{"type":"event","name":"ready","seq":1,"data":{"protocol_version":1,"app_version":"0.1.0","schema_version":2}}
+{"type":"event","name":"ready","seq":1,"data":{"protocol_version":1,"app_version":"0.1.0","schema_version":3}}
 ```
 
 Requests contain `type: "request"`, a string `id` (1–128 characters), a
@@ -36,7 +36,7 @@ characters or contain multiple complete messages.
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `app.status` | `{}` | `{active_run:null, operations:[], cleanup:{status:"idle"}, configuration_complete:false, storage:{schema_version:1,journal_mode:"wal"}}` |
+| `app.status` | `{}` | `{active_run:null, operations:[], cleanup:{status:"idle"}, configuration_complete:false, storage:{schema_version:3,journal_mode:"wal"}}` |
 | `app.ping` | `{message:string}` (≤256 characters) | `{message:string}` |
 | `app.diagnostics` | `{}` | Offline Python/architecture/dependency versions, declared locked JobSpy commit, native curl version, SQLite transactional read/write result |
 
@@ -72,7 +72,7 @@ message, and exit code 2. The data directory being owned returns stderr `BUSY`.
 EOF and SIGTERM close SQLite and release the lock. No shutdown command is added.
 Electron should keep stdin open while its backend is needed; closing the window
 must retain main/service. Explicit Quit closes stdin, waits up to 10 seconds,
-then terminates only its owned process if necessary. CSV exports use a reader thread and finish on EOF; Electron still bounds process shutdown. Future scraping workers and LLM shutdown behavior are not implemented yet.
+then terminates only its owned process if necessary. CSV exports use a reader thread and finish on EOF; Electron still bounds process shutdown. EOF stops retrieval dispatch and bounds worker shutdown; LLM shutdown remains M3/M4.
 
 ## M1 data commands
 
@@ -86,8 +86,7 @@ Timestamps are UTC milliseconds; source publication dates remain YYYY-MM-DD.
   Multi-select dimensions are OR within each dimension, AND between dimensions.
   Empty arrays mean unrestricted. NULL sort values always appear last, with ID
   as a stable tiebreaker. Salary ranges require currency and interval and match
-  overlapping known intervals. Nonempty run_ids requires M2 and returns validation
-  error; no run tables are created early.
+  overlapping known intervals. run_ids matches first-discovery pipeline batches.
 - `applications.add {job_id}` and `add_many {job_ids}` return added,
   already_present or not_found without overwriting existing user fields.
   `update {job_id,status?,notes?}`, `set_status {job_ids,status}`,
@@ -111,8 +110,8 @@ Timestamps are UTC milliseconds; source publication dates remain YYYY-MM-DD.
   application count, and disabled flag. `cleanup.execute {mode:"manual"}` checks
   current application protection again inside its transaction. Only App-owned
   logs/tmp are cleaned; symlinks are not traversed. `failed_files` reports partial
-  file cleanup failures after the database commit. runs counts are zero in M1;
-  M2/M7 will connect run/schedule retention when those tables are introduced.
+  file cleanup failures after the database commit. Run retention is included;
+  schedule retention remains M7.
 - `export.csv {scope,filter?,range:"filtered"|"all",include_jd,destination_path}`
   is private main-to-service input. Renderer uses a main-owned save-panel token,
   never a path. Main resolves existing targets or a new filename's parent, checks
@@ -183,3 +182,58 @@ integration and the complete arm64 `.app`/DMG are now implemented; see
 App passed an isolated run on the development Mac without the project venv or
 source. A second physical Mac, Developer ID signing and notarization remain
 untested/unavailable; this is not a publicly signed release.
+
+## M2 retrieval and run API
+
+Migration 003 adds runs, run_tasks and run_jobs without rebuilding jobs. The
+service serializes settings patches, draft apply, run changes and each result
+transaction. JobSpy runs in one owned spawn process at a time; only the service
+writes business data. DataFrames stay in memory. No raw result files, pagination
+checkpoints, manifest or content hashes are produced.
+
+Settings now include stable cities, country_indeed, platforms, rules, rubric,
+model metadata, proxy mode/address and auto_score_enabled (default true).
+`drafts.get/save/apply` keep edited search/rubric drafts separate from settings.
+Disable automatic scoring to run the complete M2 pipeline without a model.
+When enabled, each new job and its score task are committed together. Score
+tasks contain only job_id; they do not duplicate JD. Execution of those tasks is
+M3 work: the run stays running/scoring until implemented or explicitly stopped.
+
+Named methods are `runs.preview/start/list/detail/stop/resume`. Start and resume
+return `{run_id}` before retrieval. `run.updated`, `run.stats` and `jobs.changed`
+notify clients to re-query; logs are never progress data. List defaults to
+pipeline runs and returns started_at and surviving new_job_count. `run_ids`
+filters only is_new=1 associations; empty means All, deleted IDs match no jobs,
+and rescore IDs are rejected. Export shares those filters. Detail paginates
+tasks using task_page/task_page_size and includes up to 200 surviving job links.
+The full result list uses jobs.list, not the detail link sample.
+
+Default parameters are one retrieval worker, LinkedIn 10 / Indeed 100 results,
+72 hours, a 600-second attempt timeout, three attempts with interruptible 5/10s
+backoff. LinkedIn explicitly fetches descriptions; Indeed uses search-result JD.
+The adapter reads attrs diagnostics before conversion, maps fields by name,
+normalizes missing values without losing zero, and observes actual HTTP/429 in
+its process only. Partial responses remain in memory across finite retries and
+are committed as usable results even when the task ends failed. Zero results,
+missing JD, warnings and failures have different counters/states.
+
+A run snapshots full non-secret business settings and locked JobSpy SHA.
+Tasks have stable UUIDs and query/city/platform order independent of display
+order. Results immediately merge with both history and this run's previously
+committed jobs. Earlier representatives and scores remain fixed; sources,
+identities and surviving directions are added. Restart marks unfinished runs
+interrupted; resume skips succeeded tasks and uses the original snapshot.
+Cleanup defers during active runs and applies the same retention to runs/jobs/
+logs. Deleting a run cannot remove retained job details or labels.
+
+Ordinary proxy authentication is encrypted by Electron safeStorage and injected
+through the private main/service `internal.credentials` message. Public settings
+and snapshots accept only non-authenticated origins. off clears inherited proxy
+environment in the worker; ordinary uses the same configured proxy on both
+platforms. No Mihomo or real website tests are part of this step.
+
+The old private reference path is unavailable on this machine. Configurable
+filters and exact dedup regression cases follow the engineering documents; old
+implementation parity remains unverified. Tests use public synthetic inputs and
+FakeScraper success/zero/partial/failure/delay modes, with no private config or
+network. Exact command/result/environment records live in DEVELOPMENT-STATUS.

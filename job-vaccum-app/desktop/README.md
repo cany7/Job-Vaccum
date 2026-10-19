@@ -160,3 +160,26 @@ minimum macOS 15.6 because the bundled Python requires it; other releases and a
 second physical Mac are untested. This is a local unsigned test build with the
 default Electron icon, no Developer ID signing or notarization. Public release,
 license inventory and final distribution checks belong to M7.
+
+## M2 backend bridge (renderer unchanged)
+
+The named preload API adds getDraft/saveDraft/applyDraft, previewRun/startRun,
+listRuns/getRunDetail/stopRun/resumeRun, setProxyCredential/deleteProxyCredential.
+Shared runs.ts defines settings patches, snapshots, task diagnostics and run
+progress. The Python schema is now 3. run.updated/run.stats pass through
+onServiceEvent; the next renderer step should refresh run data from those events
+and jobs.changed, without reading stderr. run_ids now filters first-discovery
+pipeline batches; runs.list defaults to pipeline and includes started_at and
+new_job_count for batch choices. Use runs.detail for paged tasks and directions.
+
+Proxy credentials pass only through main's named local credential methods,
+are stored using safeStorage in proxy-credentials.enc, and are privately injected
+before preview/start/resume and settings reads. The renderer receives availability,
+not the saved URL. Settings/snapshots store only an unauthenticated proxy origin.
+Unavailable encryption returns AUTH_ERROR; there is no plaintext fallback.
+The backend has its own process group; bounded shutdown or a service crash also
+terminates that group's owned scrape children. There is no service auto-restart.
+
+This step does not add Runs, batch filter controls, manual search settings or
+scoring UI to the renderer. Scoring execution remains M3; auto_score_enabled=false
+allows retrieval to finish without a model. Tests use synthetic data only.

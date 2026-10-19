@@ -71,7 +71,7 @@ test('shell, About with real backend, close/reopen, single instance and Quit', a
     await nav(page, 'Settings').click();
     await page.getByRole('button', { name: 'About' }).click();
     await expect(page.getByText('Ready · protocol v1')).toBeVisible();
-    await expect(page.getByText('Schema 2 · WAL', { exact: true })).toBeVisible();
+    await expect(page.getByText('Schema 3 · WAL', { exact: true })).toBeVisible();
     await expect(page.getByText(/^Version \d+\.\d+\.\d+ · macOS arm64$/)).toBeVisible();
     await expect(page.getByText(path.basename(dataDir), { exact: false })).toBeVisible();
     // Ping is a development-build diagnostic only.
@@ -81,7 +81,7 @@ test('shell, About with real backend, close/reopen, single instance and Quit', a
       await expect(page.getByText(/^Replied in \d+ ms/)).toBeVisible();
     }
     await page.getByRole('button', { name: 'Run diagnostics' }).click();
-    await expect(page.getByText('Read/write passed · schema 2 · WAL')).toBeVisible();
+    await expect(page.getByText('Read/write passed · schema 3 · WAL')).toBeVisible();
     await expect(page.getByText(packaged ? 'Bundled' : 'Development environment', { exact: true })).toBeVisible();
 
     expect(await page.evaluate(() => typeof window.require)).toBe('undefined');
@@ -90,8 +90,10 @@ test('shell, About with real backend, close/reopen, single instance and Quit', a
       'executeCleanup', 'exportCsv', 'getAppInfo', 'getConnection', 'getDiagnostics', 'getJobDetail', 'getSettings', 'getStatus',
       'importSyntheticJobs', 'listJobs', 'onConnectionChange', 'onServiceEvent', 'openLink', 'ping', 'previewCleanup', 'quit',
       'removeApplications', 'reorderDirections', 'restoreApplications', 'saveDirection', 'saveQuery',
+      'applyDraft', 'deleteProxyCredential', 'getDraft', 'getRunDetail', 'listRuns', 'previewRun',
+      'resumeRun', 'saveDraft', 'setProxyCredential', 'startRun', 'stopRun',
       'saveSettings', 'setApplicationStatus', 'showCsvInFinder', 'showDataFolder', 'updateApplication',
-    ]);
+    ].sort());
     expect(await page.evaluate(() => window.jobVaccum.ping('M1 中文 🙂'))).toEqual({ ok: true, result: { message: 'M1 中文 🙂' } });
     const invalid = await page.evaluate(() => window.jobVaccum.ping('x'.repeat(257)));
     expect(invalid.error.code).toBe('VALIDATION_ERROR');
@@ -247,7 +249,7 @@ test('640 wide window, keyboard focus and reduced motion', async () => {
     }
     await page.getByRole('button', { name: 'About' }).click();
     await page.getByRole('button', { name: 'Run diagnostics' }).click();
-    await expect(page.getByText('Read/write passed · schema 2 · WAL')).toBeVisible();
+    await expect(page.getByText('Read/write passed · schema 3 · WAL')).toBeVisible();
     expect(await noPageOverflow(page)).toBe(true);
     // Long values wrap inside the card instead of widening the page.
     expect(await page.locator('.card').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
@@ -548,5 +550,41 @@ test('oversized business responses keep the connection ready and preserve bulk U
     expect(result.connection.phase).toBe('ready');
     expect(result.restored.result.counts.restored).toBe(50);
     expect(result.afterCount).toBe(200);
+  } finally { await application.close(); }
+});
+
+test('M2 named configuration and run queries use the real backend without scraping', async () => {
+  const dataDir = await directory();
+  const application = await launch(dataDir);
+  try {
+    const page = await application.firstWindow();
+    await expect(page.getByRole('status')).toHaveText('Backend ready');
+    const result = await page.evaluate(async () => {
+      const api = window.jobVaccum;
+      const invalidStart = await api.startRun();
+      const config = await api.saveSettings({ auto_score_enabled: false, country_indeed: 'canada',
+        cities: [{ location: 'Toronto', distance_miles: 10, enabled: true }], platforms: ['indeed'] });
+      const d = await api.saveDirection({ name: 'Manual search' });
+      await api.saveQuery({ direction_id: d.result.id, expression: 'engineer' });
+      const preview = await api.previewRun();
+      await api.saveDraft({ draft_kind: 'rubric', content: 'Synthetic editable rubric' });
+      const saved = await api.getSettings();
+      const draft = await api.getDraft({ draft_kind: 'rubric' });
+      const applied = await api.applyDraft({ draft_kind: 'rubric' });
+      return { invalidStart, config, preview, saved, draft, applied,
+        settings: await api.getSettings(), runs: await api.listRuns(),
+        detail: await api.getRunDetail({ run_id: 'missing' }),
+        resume: await api.resumeRun({ run_id: 'missing' }), stop: await api.stopRun({ run_id: 'missing' }) };
+    });
+    expect(result.invalidStart.error.code).toBe('VALIDATION_ERROR');
+    expect(result.config.ok).toBe(true);
+    expect(result.preview.result.task_count).toBe(1);
+    expect(result.preview.result.auto_score_enabled).toBe(false);
+    expect(result.saved.result.rubric).toBe('');
+    expect(result.draft.result.content).toBe('Synthetic editable rubric');
+    expect(result.settings.result.rubric).toBe('Synthetic editable rubric');
+    expect(result.settings.result.auto_score_enabled).toBe(false);
+    expect(result.runs.result).toEqual({ items: [], total: 0 });
+    expect([result.detail.error.code, result.resume.error.code, result.stop.error.code]).toEqual(['NOT_FOUND', 'NOT_FOUND', 'NOT_FOUND']);
   } finally { await application.close(); }
 });

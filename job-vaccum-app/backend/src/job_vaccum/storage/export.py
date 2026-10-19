@@ -5,7 +5,7 @@ from pathlib import Path
 import sqlite3
 
 from job_vaccum.service.protocol import CommandError
-from job_vaccum.storage.filters import FILTER_FIELDS, build_filter, choice, fields, boolean, string
+from job_vaccum.storage.filters import FILTER_FIELDS, build_filter, choice, fields, boolean, string, validate_run_ids
 from job_vaccum.storage.repository import JOIN, SELECT, Repository, row_dict
 
 
@@ -27,6 +27,9 @@ def validate_export(params, database: Path):
         raise CommandError('Export scope and filter scope must match.')
     filters = {**filters, 'scope': scope}
     build_filter(filters)
+    if filters.get('run_ids'):
+        with closing(sqlite3.connect(database.as_uri() + '?mode=ro', uri=True, timeout=5)) as db:
+            validate_run_ids(db, filters)
     return ({'scope': scope} if mode == 'all' else filters), destination
 
 
