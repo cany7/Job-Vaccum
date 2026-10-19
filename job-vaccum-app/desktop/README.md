@@ -78,7 +78,7 @@ npm run test:e2e
 `@smoke`, including real backend startup, Jobs-to-Shortlist interaction,
 persistence/export, M2 queries and backend-crash handling. The full suite above
 still includes these tests. GitHub PR checks use this smaller set; see
-[CI setup and automatic merging](../../.github/README.md).
+[CI setup and automatic merging](../../.github/CI.md).
 
 The 9 Node tests use a synthetic process for fragmented Unicode/multiple
 responses, request correlation, incompatible/missing ready, malformed/oversized

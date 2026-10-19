@@ -1,18 +1,18 @@
 # Job Vaccum
 
-面向 macOS Apple Silicon 的本地岗位管理桌面应用，用于浏览、筛选岗位，整理投递清单并导出 CSV。实际投递由用户在外部完成。
+A local desktop app for macOS on Apple Silicon. Browse and filter jobs, organize an application shortlist, and export it as CSV. Applications are submitted outside the app.
 
-项目正在开发中：已有岗位列表、详情、筛选排序、投递状态与备注，以及 JobSpy 检索后端；检索界面、AI 评分和定时运行仍在后续开发范围内。当前不是正式签名发布版本。
+The project is under development. Job lists, details, filtering and sorting, application statuses and notes, and a JobSpy search backend are available. The search interface, AI scoring, and scheduled runs are planned for later development. This is not yet a signed production release.
 
-## 技术与目录
+## Technology and structure
 
-- [桌面端](job-vaccum-app/desktop/README.md)：Electron、React、TypeScript。
-- [后端](job-vaccum-app/backend/README.md)：Python、JobSpy、SQLite，数据保存在本机。
-- [CI 与协作流程](.github/README.md)：后端测试、前端类型检查与构建、Electron E2E 冒烟测试，以及 PR 自动合并。
+- [Desktop](job-vaccum-app/desktop/README.md): Electron, React, and TypeScript.
+- [Backend](job-vaccum-app/backend/README.md): Python, JobSpy, and SQLite, with data stored locally.
+- [CI and collaboration](.github/CI.md): Backend tests, frontend type checks and builds, Electron E2E smoke tests, and PR auto-merge.
 
-## 本地开发
+## Local development
 
-准备 macOS Apple Silicon、uv 和 Node.js；Python 与 Node 版本分别以 `job-vaccum-app/.python-version`、`job-vaccum-app/.node-version` 为准。在仓库根目录执行：
+You need a Mac with Apple Silicon, uv, and Node.js. Use the Python and Node versions declared in `job-vaccum-app/.python-version` and `job-vaccum-app/.node-version`. From the repository root, run:
 
 ```sh
 cd job-vaccum-app/backend
@@ -22,4 +22,4 @@ npm ci
 npm run dev
 ```
 
-测试与打包命令见各模块 README。默认自动化测试使用合成数据，不需要真实网站账号或付费模型服务。依赖使用已提交的 lockfile；本地开发约定和设计文档不随仓库分发。
+See the module READMEs for test and packaging commands. Automated tests use synthetic data by default and do not require website accounts or paid model services. Dependencies are pinned in the committed lockfiles. Local development guidelines and design documents are maintained separately and are not distributed with the repository.
