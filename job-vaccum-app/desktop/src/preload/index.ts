@@ -12,5 +12,8 @@ const api: JobVaccumApi = {
   getStatus: () => ipcRenderer.invoke("app:status"),
   ping: (message) => ipcRenderer.invoke("app:ping", message),
   getDiagnostics: () => ipcRenderer.invoke("app:diagnostics"),
+  getAppInfo: () => ipcRenderer.invoke("app:info"),
+  quit: () => ipcRenderer.invoke("app:quit"),
+  showDataFolder: () => ipcRenderer.invoke("app:show-data-folder"),
 };
 contextBridge.exposeInMainWorld("jobVaccum", api);

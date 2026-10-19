@@ -47,6 +47,14 @@ export interface Diagnostics {
   storage: { read_write: boolean; schema_version: number; journal_mode: string };
 }
 
+/** Static desktop facts from Electron main; data_dir is for display only (home shown as ~). */
+export interface AppInfo {
+  version: string;
+  arch: string;
+  packaged: boolean;
+  data_dir: string;
+}
+
 export interface JobVaccumApi {
   getConnection(): Promise<ConnectionState>;
   /** Returns an unsubscribe function. */
@@ -54,6 +62,11 @@ export interface JobVaccumApi {
   getStatus(): Promise<ApiResult<AppStatus>>;
   ping(message: string): Promise<ApiResult<{ message: string }>>;
   getDiagnostics(): Promise<ApiResult<Diagnostics>>;
+  getAppInfo(): Promise<AppInfo>;
+  /** Quits through the normal bounded shutdown. */
+  quit(): Promise<void>;
+  /** Reveals this App's data directory in Finder; takes no path. */
+  showDataFolder(): Promise<void>;
 }
 
 declare global {

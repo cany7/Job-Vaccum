@@ -1,9 +1,17 @@
-# M0 desktop
+# Desktop
 
-The minimal English window connects to the real Python service. It displays the
-connection/handshake, idle status, a Unicode ping and offline dependency/SQLite
-diagnostics. Job discovery, applications, settings and scheduling start in later
-milestones. Closing the window keeps main/service running; use the Dock or
+The English App shell connects to the real Python service: a hidden-inset title
+bar with a 48px top bar (native traffic lights, sidebar toggle ⌃⌘S, page name),
+a sidebar that collapses to a 52px rail (automatically below 1100px wide; a manual
+collapse is remembered), and a rounded content card. Jobs and Shortlist show their
+empty states until the M1 list step; the sidebar search is a disabled placeholder
+until then. Settings has Appearance (System/Light/Dark mode, separate light and
+dark themes from Graphite/Pine/Ink) and About (version, backend, data folder with
+Show in Finder, database, offline diagnostics; Ping only in development builds).
+Startup failure is a whole-window page with the data folder and Quit; a backend
+that exits later blocks the shell and offers only Quit. Appearance and sidebar
+state are local UI preferences in renderer storage, not service data.
+Closing the window keeps main/service running; use the Dock or
 **Job Vaccum → Show Job Vaccum** to reopen. **Quit / Cmd+Q** closes backend stdin,
 waits 10 seconds, then terminates only its owned backend if necessary.
 
@@ -17,7 +25,7 @@ npm ci
 npm run dev
 ```
 
-`dev` typechecks, builds and opens Electron. Re-run after editing; M0 does not run
+`dev` typechecks, builds and opens Electron. Re-run after editing; there is no
 a hot-reload server. `npm start` opens the existing build. Development data lives
 in the repository's ignored `tmp/job-vaccum-app/desktop`; packaged builds use
 Electron userData (`~/Library/Application Support/Job Vaccum` on this Mac).
@@ -25,7 +33,9 @@ The optional main-process `--data-dir=/absolute/path` argument isolates local
 integration tests; the renderer cannot choose paths or executables.
 
 The sandboxed renderer gets only `getConnection`, `onConnectionChange`,
-`getStatus`, `ping` and `getDiagnostics` through `window.jobVaccum`. It has no
+`getStatus`, `ping`, `getDiagnostics`, `getAppInfo` (version, arch, packaged,
+display data path), `quit` (normal bounded shutdown) and `showDataFolder`
+(reveals this App's data directory; takes no path) through `window.jobVaccum`. It has no
 Node, shell, database or generic IPC/request API. Main starts one backend by
 absolute path, buffers UTF-8 JSON Lines, checks protocol v1 before dispatch,
 matches request ids and settles timed-out/exited requests without replay or
@@ -41,10 +51,13 @@ npm run test:e2e
 
 The 9 Node tests use a synthetic process for fragmented Unicode/multiple
 responses, request correlation, incompatible/missing ready, malformed/oversized
-output, startup/exit failures, late responses, and shutdown. The 4 Playwright
-Electron scenarios run real windows and the backend: ping/diagnostics, minimum
-window width/long text/focus/reduced-motion, single instance, close/reopen, Quit,
-corrupt database startup, and backend crash. One scenario injects controlled
+output, startup/exit failures, late responses, and shutdown. The 7 Playwright
+Electron scenarios run real windows and the backend: shell and window options,
+About status/diagnostics/ping, single instance, close/reopen, Quit; sidebar
+collapse across restarts and narrow-window auto-collapse; mode/theme switching,
+independence and persistence, increased contrast; 640px width without page
+overflow, keyboard focus and reduced motion; corrupt database startup page and its
+Quit; backend crash blocking with Quit. One scenario injects controlled
 connection/loading/error responses at the Electron boundary for UI verification;
 the other service interactions are real and offline. No browser download needed.
 Screenshots and data go to ignored `tmp/job-vaccum-app/`.

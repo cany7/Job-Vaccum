@@ -1,5 +1,6 @@
-import { app, BrowserWindow, ipcMain, Menu, session } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, nativeTheme, session, shell, type IpcMainInvokeEvent } from "electron";
 import { mkdirSync } from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Backend } from "./backend";
@@ -19,12 +20,19 @@ let quitting = false;
 let canQuit = false;
 const rendererPath = path.join(desktopRoot, "dist/renderer/index.html");
 
+function assertSender(event: IpcMainInvokeEvent) {
+  if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame
+    || fileURLToPath(event.senderFrame.url) !== rendererPath) throw new Error("Untrusted IPC sender.");
+}
+
 function createWindow() {
   if (quitting) return;
   if (window) { window.show(); window.focus(); return; }
   window = new BrowserWindow({
-    title: "Job Vaccum", width: 980, height: 780, minWidth: 640, minHeight: 480,
-    show: false, backgroundColor: "#f5f5f7",
+    title: "Job Vaccum", width: 1280, height: 800, minWidth: 640, minHeight: 480,
+    // The renderer draws a 48px top bar; the native traffic lights sit centered in it.
+    titleBarStyle: "hiddenInset", trafficLightPosition: { x: 18, y: 17 },
+    show: false, backgroundColor: nativeTheme.shouldUseDarkColors ? "#1b1b1d" : "#ececea",
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
       contextIsolation: true, nodeIntegration: false, sandbox: true,
@@ -71,11 +79,18 @@ if (!app.requestSingleInstanceLock()) {
       [channels.ping, "app.ping"], [channels.diagnostics, "app.diagnostics"],
     ] as const) {
       ipcMain.handle(channel, (event, message?: unknown) => {
-        if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame
-          || fileURLToPath(event.senderFrame.url) !== rendererPath) throw new Error("Untrusted IPC sender.");
+        assertSender(event);
         return method === null ? backend!.state : backend!.request(method, method === "app.ping" ? { message } : {});
       });
     }
+    const home = homedir();
+    const shownDataDir = dataDir === home || dataDir.startsWith(home + path.sep) ? "~" + dataDir.slice(home.length) : dataDir;
+    ipcMain.handle(channels.appInfo, (event) => {
+      assertSender(event);
+      return { version: app.getVersion(), arch: process.arch, packaged: app.isPackaged, data_dir: shownDataDir };
+    });
+    ipcMain.handle(channels.quit, (event) => { assertSender(event); app.quit(); });
+    ipcMain.handle(channels.showDataFolder, (event) => { assertSender(event); shell.showItemInFolder(dataDir); });
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       { label: "Job Vaccum", submenu: [{ role: "about" }, { type: "separator" },
         { label: "Show Job Vaccum", click: createWindow }, { role: "hide" }, { role: "hideOthers" },
