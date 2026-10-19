@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, type ReactNode } from "react";
 import type { ApiError, AppInfo, ConnectionState, JobVaccumApi } from "./api";
+import type { SettingsSection } from "./context";
 import { themes, type Mode, type Theme, type UiPrefs } from "./prefs";
 import { useRequest } from "./requests";
+import { DataSection, SearchesSection } from "./SettingsData";
 
-type Section = "appearance" | "about";
-const sections: [Section, string][] = [
+const sections: [SettingsSection, string][] = [
+  ["searches", "Searches"],
+  ["data", "Data"],
   ["appearance", "Appearance"],
   ["about", "About"],
 ];
@@ -15,8 +18,10 @@ export function Settings(props: {
   info: AppInfo | null;
   prefs: UiPrefs;
   updatePrefs: (change: Partial<UiPrefs>) => void;
+  section: SettingsSection;
+  onSection: (section: SettingsSection) => void;
 }) {
-  const [section, setSection] = useState<Section>("appearance");
+  const { section, onSection: setSection } = props;
   return (
     <div className="settings">
       <nav className="settings-nav" aria-label="Settings sections">
@@ -33,7 +38,11 @@ export function Settings(props: {
         ))}
       </nav>
       <div className="settings-content">
-        {section === "appearance" ? (
+        {section === "searches" ? (
+          <SearchesSection />
+        ) : section === "data" ? (
+          <DataSection />
+        ) : section === "appearance" ? (
           <Appearance prefs={props.prefs} updatePrefs={props.updatePrefs} />
         ) : (
           <About api={props.api} connection={props.connection} info={props.info} />

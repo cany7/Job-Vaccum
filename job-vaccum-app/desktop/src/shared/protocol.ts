@@ -38,4 +38,5 @@ export const channels = {
   appInfo: "app:info",
   quit: "app:quit",
   showDataFolder: "app:show-data-folder",
+  openLink: "app:open-link",
 } as const;

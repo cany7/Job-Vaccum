@@ -41,6 +41,8 @@ const resize = (application, width, height) => application.evaluate(
 const noPageOverflow = page => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth
   && document.documentElement.scrollHeight <= innerHeight);
 const sidebarWidth = page => page.locator('#sidebar').evaluate(el => Math.round(el.getBoundingClientRect().width));
+// Sidebar entries show counts ("Jobs 125"), so match them by their leading label.
+const nav = (page, name) => page.locator('#sidebar').getByRole('button', { name: new RegExp(`^${name}`) }).first();
 const cssVar = (page, name) => page.evaluate(n => getComputedStyle(document.documentElement).getPropertyValue(n).trim(), name);
 
 test('shell, About with real backend, close/reopen, single instance and Quit', async () => {
@@ -59,14 +61,14 @@ test('shell, About with real backend, close/reopen, single instance and Quit', a
     await expect(page.getByRole('status')).toHaveText('Backend ready');
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Jobs');
     await expect(page.getByText('No jobs yet')).toBeVisible();
-    await page.getByRole('button', { name: 'Shortlist' }).click();
+    await nav(page, 'Shortlist').click();
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Shortlist');
     await expect(page.getByText('Your Shortlist is empty')).toBeVisible();
     await expect(page.getByRole('button', { name: /^Runs/ })).toHaveCount(0);
     expect(await page.locator('.topbar').evaluate(el => getComputedStyle(el).webkitAppRegion)).toBe('drag');
     expect(await page.getByRole('button', { name: 'Hide sidebar' }).evaluate(el => getComputedStyle(el).webkitAppRegion)).toBe('no-drag');
 
-    await page.getByRole('button', { name: 'Settings' }).click();
+    await nav(page, 'Settings').click();
     await page.getByRole('button', { name: 'About' }).click();
     await expect(page.getByText('Ready · protocol v1')).toBeVisible();
     await expect(page.getByText('Schema 2 · WAL', { exact: true })).toBeVisible();
@@ -86,7 +88,7 @@ test('shell, About with real backend, close/reopen, single instance and Quit', a
     expect(await page.evaluate(() => Object.keys(window.jobVaccum).sort())).toEqual([
       'addApplication', 'addApplications', 'chooseCsvDestination', 'deleteDirection', 'deleteQuery',
       'executeCleanup', 'exportCsv', 'getAppInfo', 'getConnection', 'getDiagnostics', 'getJobDetail', 'getSettings', 'getStatus',
-      'importSyntheticJobs', 'listJobs', 'onConnectionChange', 'onServiceEvent', 'ping', 'previewCleanup', 'quit',
+      'importSyntheticJobs', 'listJobs', 'onConnectionChange', 'onServiceEvent', 'openLink', 'ping', 'previewCleanup', 'quit',
       'removeApplications', 'reorderDirections', 'restoreApplications', 'saveDirection', 'saveQuery',
       'saveSettings', 'setApplicationStatus', 'showCsvInFinder', 'showDataFolder', 'updateApplication',
     ]);
@@ -147,7 +149,7 @@ test('sidebar collapse persists, narrow windows auto-collapse and restore', asyn
     await resize(application, 1000, 700);
     await resize(application, 1280, 800);
     await expect.poll(() => sidebarWidth(page)).toBe(52);
-    await page.getByRole('button', { name: 'Shortlist' }).click();
+    await nav(page, 'Shortlist').click();
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Shortlist');
     await page.screenshot({ path: path.join(dataDir, 'collapsed.png') });
     await quit(application);
@@ -174,7 +176,8 @@ test('themes and modes switch immediately, stay independent and persist', async 
     let page = await application.firstWindow();
     await expect(page.getByRole('status')).toHaveText('Backend ready');
     await page.emulateMedia({ colorScheme: 'light' });
-    await page.getByRole('button', { name: 'Settings' }).click();
+    await nav(page, 'Settings').click();
+    await page.getByRole('button', { name: 'Appearance' }).click();
     await expect(page.getByRole('radio', { name: 'System' })).toBeChecked();
     await expect(page.locator('html')).toHaveAttribute('data-scheme', 'light');
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'graphite');
@@ -218,7 +221,8 @@ test('themes and modes switch immediately, stay independent and persist', async 
     await expect(page.getByRole('status')).toHaveText('Backend ready');
     await expect(page.locator('html')).toHaveAttribute('data-scheme', 'dark');
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'ink');
-    await page.getByRole('button', { name: 'Settings' }).click();
+    await nav(page, 'Settings').click();
+    await page.getByRole('button', { name: 'Appearance' }).click();
     await expect(page.getByRole('radio', { name: 'Dark', exact: true })).toBeChecked();
     await expect(page.getByRole('radiogroup', { name: 'Light theme' }).getByRole('radio', { name: 'Pine' })).toBeChecked();
     await expect(page.getByRole('radiogroup', { name: 'Dark theme' }).getByRole('radio', { name: 'Ink' })).toBeChecked();
@@ -234,7 +238,7 @@ test('640 wide window, keyboard focus and reduced motion', async () => {
     await resize(application, 640, 480);
     await expect.poll(() => sidebarWidth(page)).toBe(52);
     for (const name of ['Jobs', 'Shortlist', 'Settings']) {
-      await page.getByRole('button', { name }).click();
+      await nav(page, name).click();
       expect(await noPageOverflow(page)).toBe(true);
     }
     await page.getByRole('button', { name: 'About' }).click();
@@ -328,7 +332,7 @@ test('controlled starting, loading and request error states remain usable', asyn
   try {
     const page = await application.firstWindow();
     await expect(page.getByRole('status')).toHaveText('Backend ready');
-    await page.getByRole('button', { name: 'Settings' }).click();
+    await nav(page, 'Settings').click();
     await page.getByRole('button', { name: 'About' }).click();
     // Inject only at the Electron test boundary; no runtime test hooks ship in the app.
     await application.evaluate(({ BrowserWindow }) => {

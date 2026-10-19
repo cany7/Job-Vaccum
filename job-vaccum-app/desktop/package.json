@@ -19,11 +19,13 @@
     "package:dir": "npm run build && npm run build:backend && electron-builder --mac --arm64 --dir"
   },
   "dependencies": {
+    "markdown-it": "14.3.2",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },
   "devDependencies": {
     "@playwright/test": "1.64.1",
+    "@types/markdown-it": "14.2.0",
     "@types/node": "26.6.5",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { readListPrefs, type ListPage, type ListPrefs } from "./listModel";
 
 // Local UI preferences live only in this Mac's renderer storage (CONTRACTS):
 // no service command, no SQLite.
@@ -9,12 +10,14 @@ export interface UiPrefs {
   lightTheme: Theme;
   darkTheme: Theme;
   sidebarCollapsed: boolean;
+  /** Each list page remembers its own filters, sort, rows per page and columns. */
+  lists: Record<ListPage, ListPrefs>;
 }
 
 export const themes: Theme[] = ["graphite", "pine", "ink"];
 const modes: Mode[] = ["system", "light", "dark"];
 const KEY = "jobVaccum.ui";
-const defaults: UiPrefs = { mode: "system", lightTheme: "graphite", darkTheme: "graphite", sidebarCollapsed: false };
+const defaults = { mode: "system", lightTheme: "graphite", darkTheme: "graphite" } as const;
 
 export function readPrefs(): UiPrefs {
   let stored: Partial<Record<keyof UiPrefs, unknown>> = {};
@@ -24,6 +27,7 @@ export function readPrefs(): UiPrefs {
   } catch {
     // Unreadable preferences fall back to defaults.
   }
+  if (!stored.lists || typeof stored.lists !== "object") stored.lists = undefined;
   const pick = <T>(value: unknown, allowed: readonly T[], fallback: T) =>
     allowed.includes(value as T) ? (value as T) : fallback;
   return {
@@ -31,6 +35,10 @@ export function readPrefs(): UiPrefs {
     lightTheme: pick(stored.lightTheme, themes, defaults.lightTheme),
     darkTheme: pick(stored.darkTheme, themes, defaults.darkTheme),
     sidebarCollapsed: stored.sidebarCollapsed === true,
+    lists: {
+      jobs: readListPrefs("jobs", (stored.lists as Record<string, unknown> | undefined)?.jobs),
+      shortlist: readListPrefs("shortlist", (stored.lists as Record<string, unknown> | undefined)?.shortlist),
+    },
   };
 }
 
@@ -46,9 +54,9 @@ export function applyAppearance(prefs: UiPrefs) {
 
 export function usePrefs() {
   const [prefs, setPrefs] = useState(readPrefs);
-  const update = useCallback((change: Partial<UiPrefs>) => {
+  const update = useCallback((change: Partial<UiPrefs> | ((previous: UiPrefs) => Partial<UiPrefs>)) => {
     setPrefs((previous) => {
-      const next = { ...previous, ...change };
+      const next = { ...previous, ...(typeof change === "function" ? change(previous) : change) };
       try {
         localStorage.setItem(KEY, JSON.stringify(next));
       } catch {
@@ -79,4 +87,11 @@ export function useNarrow() {
     return () => list.removeEventListener("change", change);
   }, []);
   return narrow;
+}
+
+export type UpdatePrefs = ReturnType<typeof usePrefs>[1];
+
+/** Merges a change into one list page's remembered settings. */
+export function updateList(updatePrefs: UpdatePrefs, page: ListPage, change: Partial<ListPrefs>) {
+  updatePrefs((previous) => ({ lists: { ...previous.lists, [page]: { ...previous.lists[page], ...change } } }));
 }

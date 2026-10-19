@@ -93,6 +93,13 @@ if (!app.requestSingleInstanceLock()) {
     });
     ipcMain.handle(channels.quit, (event) => { assertSender(event); app.quit(); });
     ipcMain.handle(channels.showDataFolder, (event) => { assertSender(event); shell.showItemInFolder(dataDir); });
+    // Job postings and JD links open in the default browser; only web links are allowed.
+    ipcMain.handle(channels.openLink, (event, url: unknown) => {
+      assertSender(event);
+      const parsed = typeof url === "string" && URL.canParse(url) ? new URL(url) : null;
+      if (!parsed || (parsed.protocol !== "http:" && parsed.protocol !== "https:")) throw new Error("Only web links can be opened.");
+      return shell.openExternal(parsed.href);
+    });
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       { label: "Job Vaccum", submenu: [{ role: "about" }, { type: "separator" },
         { label: "Show Job Vaccum", click: createWindow }, { role: "hide" }, { role: "hideOthers" },

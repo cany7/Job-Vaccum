@@ -69,6 +69,8 @@ export interface JobVaccumApi extends BusinessApi {
   quit(): Promise<void>;
   /** Reveals this App's data directory in Finder; takes no path. */
   showDataFolder(): Promise<void>;
+  /** Opens an http(s) link in the default browser; any other scheme is rejected. */
+  openLink(url: string): Promise<void>;
 }
 
 declare global {

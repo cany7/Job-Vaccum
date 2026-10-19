@@ -41,5 +41,6 @@ const api: JobVaccumApi = {
   getAppInfo: () => ipcRenderer.invoke("app:info"),
   quit: () => ipcRenderer.invoke("app:quit"),
   showDataFolder: () => ipcRenderer.invoke("app:show-data-folder"),
+  openLink: (url) => ipcRenderer.invoke("app:open-link", url),
 };
 contextBridge.exposeInMainWorld("jobVaccum", api);

@@ -69,3 +69,72 @@ export const StoppedIcon = () => (
     <path d="M4.75 4.25a5.25 5.25 0 1 0 6.5 0" strokeWidth="1.1" />
   </Icon>
 );
+
+export const SearchesIcon = () => (
+  <Icon>
+    <path d="M3 5.25h10M3 8h10M3 10.75h6" />
+    <circle cx="12" cy="11" r="1.75" />
+  </Icon>
+);
+
+export const ChevronDown = ({ size = 10 }: { size?: number }) => (
+  <Icon size={size}>
+    <path d="m4 6 4 4 4-4" strokeWidth="1.8" />
+  </Icon>
+);
+
+export const ChevronLeft = () => (
+  <Icon size={14}>
+    <path d="m10 3.5-4.5 4.5 4.5 4.5" strokeWidth="1.6" />
+  </Icon>
+);
+
+export const ChevronRight = () => (
+  <Icon size={14}>
+    <path d="m6 3.5 4.5 4.5-4.5 4.5" strokeWidth="1.6" />
+  </Icon>
+);
+
+export const ArrowUp = () => (
+  <Icon size={14}>
+    <path d="M8 13V3.5M3.75 7.5 8 3.25l4.25 4.25" strokeWidth="1.5" />
+  </Icon>
+);
+
+export const ArrowDown = () => (
+  <Icon size={14}>
+    <path d="M8 3v9.5M3.75 8.5 8 12.75l4.25-4.25" strokeWidth="1.5" />
+  </Icon>
+);
+
+export const CloseIcon = ({ size = 14 }: { size?: number }) => (
+  <Icon size={size}>
+    <path d="m4 4 8 8M12 4l-8 8" strokeWidth="1.5" />
+  </Icon>
+);
+
+export const ExternalIcon = () => (
+  <Icon size={11}>
+    <path d="M5.5 3.5h7v7M12.25 3.75 4 12" strokeWidth="1.6" />
+  </Icon>
+);
+
+export const CheckIcon = ({ size = 12 }: { size?: number }) => (
+  <Icon size={size}>
+    <path d="m3.5 8.5 3 3 6-7" strokeWidth="1.8" />
+  </Icon>
+);
+
+export const GripIcon = () => (
+  <Icon size={14}>
+    <path d="M6 4h0.01M10 4h0.01M6 8h0.01M10 8h0.01M6 12h0.01M10 12h0.01" strokeWidth="2.2" />
+  </Icon>
+);
+
+export const AlertIcon = () => (
+  <Icon size={14}>
+    <path d="M8 2.25 14.25 13.25H1.75Z" strokeWidth="1.3" />
+    <path d="M8 6.5v3" strokeWidth="1.4" />
+    <path d="M8 11.4v0.1" strokeWidth="1.7" />
+  </Icon>
+);
