@@ -16,7 +16,8 @@
     "test:e2e": "npm run build && playwright test",
     "build:backend": "node scripts/build-backend.mjs",
     "package:mac": "npm run build && npm run build:backend && electron-builder --mac --arm64",
-    "package:dir": "npm run build && npm run build:backend && electron-builder --mac --arm64 --dir"
+    "package:dir": "npm run build && npm run build:backend && electron-builder --mac --arm64 --dir",
+    "test:e2e:smoke": "npm run build && playwright test --grep @smoke"
   },
   "dependencies": {
     "markdown-it": "14.3.2",

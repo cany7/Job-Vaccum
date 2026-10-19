@@ -45,7 +45,7 @@ const sidebarWidth = page => page.locator('#sidebar').evaluate(el => Math.round(
 const nav = (page, name) => page.locator('#sidebar').getByRole('button', { name: new RegExp(`^${name}`) }).first();
 const cssVar = (page, name) => page.evaluate(n => getComputedStyle(document.documentElement).getPropertyValue(n).trim(), name);
 
-test('shell, About with real backend, close/reopen, single instance and Quit', async () => {
+test('shell, About with real backend, close/reopen, single instance and Quit', { tag: '@smoke' }, async () => {
   const dataDir = await directory();
   const application = await launch(dataDir);
   try {
@@ -309,7 +309,7 @@ test('startup failure is a whole-window page whose Quit exits the App', async ()
   } finally { if (application.ownedProcess.exitCode === null) await application.close(); }
 });
 
-test('backend crash blocks the shell and only offers Quit', async () => {
+test('backend crash blocks the shell and only offers Quit', { tag: '@smoke' }, async () => {
   const dataDir = await directory();
   const application = await launch(dataDir);
   try {
@@ -368,7 +368,7 @@ test('controlled starting, loading and request error states remain usable', asyn
   } finally { await application.close(); }
 });
 
-test('M1 named bridge persists business data and exports through a main-owned destination', async () => {
+test('M1 named bridge persists business data and exports through a main-owned destination', { tag: '@smoke' }, async () => {
   test.skip(Boolean(packaged), 'Development synthetic import is intentionally disabled in packaged apps');
   const { readFile, rm } = require('node:fs/promises');
   const dataDir = await directory();
@@ -553,7 +553,7 @@ test('oversized business responses keep the connection ready and preserve bulk U
   } finally { await application.close(); }
 });
 
-test('M2 named configuration and run queries use the real backend without scraping', async () => {
+test('M2 named configuration and run queries use the real backend without scraping', { tag: '@smoke' }, async () => {
   const dataDir = await directory();
   const application = await launch(dataDir);
   try {

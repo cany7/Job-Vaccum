@@ -13,7 +13,7 @@ const chips = page => view(page).locator('.chip-label');
 const detailTitle = page => view(page).locator('.detail-heading h2');
 const import125 = ['dev.import_synthetic', { count: 125 }];
 
-test('Jobs: paging, sorting, selection, adding and keyboard review', async () => {
+test('Jobs: paging, sorting, selection, adding and keyboard review', { tag: '@smoke' }, async () => {
   const dataDir = await directory();
   await seed(dataDir, [import125]);
   let { application, page } = await launch(dataDir);
