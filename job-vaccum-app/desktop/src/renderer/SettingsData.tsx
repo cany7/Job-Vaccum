@@ -3,16 +3,36 @@ import { call, type ApiError, type Direction } from "./api";
 import { useApp } from "./context";
 import { ConfirmDialog } from "./dialogs";
 import { plural } from "./format";
-import { GripIcon } from "./icons";
+import { ChevronDown, ChevronRight, GripIcon } from "./icons";
 import { ErrorText } from "./Settings";
+import { AddSearchRow, LocationsForm, QueriesEditor } from "./SettingsSearch";
 import { useToast } from "./toasts";
 
-/** Settings › Searches: rename, reorder (drag or ⌥↑↓ on the handle) and delete. */
+/**
+ * Settings › Searches: add, turn on or off, rename, reorder (drag or ⌥↑↓ on the
+ * handle), delete, and edit each search's queries; then locations and sites.
+ */
 export function SearchesSection() {
   const { api, catalog, mutate, refreshCatalog } = useApp();
   const toast = useToast();
   const [order, setOrder] = useState<Direction[]>(catalog.directions);
   const [editing, setEditing] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [adding, setAdding] = useState(false);
+  const expand = (id: string, open: boolean) =>
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (open) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  const setEnabled = async (direction: Direction, enabled: boolean) => {
+    // Shown at once; the reload after saving puts back the stored value if it failed.
+    setOrder((current) => current.map((item) => (item.id === direction.id ? { ...item, enabled } : item)));
+    const response = await mutate(() => api.saveDirection({ id: direction.id, enabled }));
+    if (!response.ok) toast({ text: `Couldn't change “${direction.name}”. ${response.error.message}`, code: response.error.code, error: true });
+    refreshCatalog();
+  };
   const [deleting, setDeleting] = useState<Direction | null>(null);
   const [busy, setBusy] = useState(false);
   const dragged = useRef<string | null>(null);
@@ -63,16 +83,21 @@ export function SearchesSection() {
       <header className="section-header">
         <h2 id="searches-title">Searches</h2>
         <p className="muted">
-          Renaming updates every job's label. Deleting a search removes its queries and labels; jobs and your Shortlist are kept. Drag the handle to
-          reorder the sidebar.
+          Each search groups the queries sent to LinkedIn and Indeed. Renaming updates every job's label. Deleting a search removes its queries and labels; jobs
+          and your Shortlist are kept. Drag the handle to reorder the sidebar. Changes apply to the next run.
         </p>
       </header>
       {catalog.error && !catalog.directions.length ? (
         <ErrorText error={catalog.error} block />
-      ) : order.length === 0 ? (
+      ) : order.length === 0 && !adding ? (
         <div className="settings-empty">
           <h3>No searches yet</h3>
-          <p className="muted">Searches you set up appear here.</p>
+          <p className="muted">Add a search, then give it one or more queries.</p>
+          <div>
+            <button type="button" className="button" onClick={() => setAdding(true)}>
+              Add search
+            </button>
+          </div>
         </div>
       ) : (
         <table className="settings-table" aria-label="Searches">
@@ -81,6 +106,7 @@ export function SearchesSection() {
               <th className="handle-cell">
                 <span className="visually-hidden">Order</span>
               </th>
+              <th className="toggle-cell">On</th>
               <th>Name</th>
               <th className="number-cell">Queries</th>
               <th className="number-cell">Jobs</th>
@@ -90,7 +116,7 @@ export function SearchesSection() {
             </tr>
           </thead>
           <tbody>
-            {order.map((direction, index) => (
+            {order.map((direction, index) => [
               <tr
                 key={direction.id}
                 draggable={editing !== direction.id}
@@ -126,6 +152,16 @@ export function SearchesSection() {
                     <GripIcon />
                   </button>
                 </td>
+                <td className="toggle-cell">
+                  <input
+                    type="checkbox"
+                    className="checkbox"
+                    checked={direction.enabled}
+                    aria-label={`Include ${direction.name} in runs`}
+                    title={direction.enabled ? "Included in runs" : "Not included in runs"}
+                    onChange={(event) => void setEnabled(direction, event.target.checked)}
+                  />
+                </td>
                 {editing === direction.id ? (
                   <RenameRow
                     direction={direction}
@@ -137,7 +173,18 @@ export function SearchesSection() {
                 ) : (
                   <>
                     <td className="name-cell">{direction.name}</td>
-                    <td className="number-cell muted">{plural(direction.queries.length, "query", "queries")}</td>
+                    <td className="number-cell">
+                      <button
+                        type="button"
+                        className="disclosure"
+                        aria-expanded={expanded.has(direction.id)}
+                        aria-controls={`queries-${direction.id}`}
+                        onClick={() => expand(direction.id, !expanded.has(direction.id))}
+                      >
+                        {expanded.has(direction.id) ? <ChevronDown /> : <ChevronRight />}
+                        {plural(direction.queries.length, "query", "queries")}
+                      </button>
+                    </td>
                     <td className="number-cell muted">{plural(catalog.byDirection[direction.id] ?? 0, "job")}</td>
                     <td className="actions-cell">
                       <button type="button" className="button" onClick={() => setEditing(direction.id)}>
@@ -149,11 +196,36 @@ export function SearchesSection() {
                     </td>
                   </>
                 )}
-              </tr>
-            ))}
+              </tr>,
+              expanded.has(direction.id) ? (
+                <tr key={`${direction.id}-queries`} className="queries-row" id={`queries-${direction.id}`}>
+                  <td />
+                  <td colSpan={5}>
+                    <QueriesEditor direction={direction} />
+                  </td>
+                </tr>
+              ) : null,
+            ])}
+            {adding ? (
+              <AddSearchRow
+                onDone={(created) => {
+                  setAdding(false);
+                  if (created) expand(created, true);
+                }}
+              />
+            ) : null}
           </tbody>
         </table>
       )}
+      {order.length && !adding ? (
+        <div>
+          <button type="button" className="button" onClick={() => setAdding(true)}>
+            Add search
+          </button>
+        </div>
+      ) : null}
+      <hr className="divider" />
+      <LocationsForm />
       {deleting ? (
         <ConfirmDialog title={`Delete search “${deleting.name}”?`} action="Delete" busy={busy} onCancel={() => setDeleting(null)} onConfirm={() => void confirmDelete()}>
           <p>
@@ -230,6 +302,7 @@ function RenameRow({ direction, onDone }: { direction: Direction; onDone: () => 
 
 interface Preview {
   jobs: number;
+  runs: number;
   applications: number;
   files: number;
   disabled: boolean;
@@ -288,13 +361,13 @@ export function DataSection() {
       toast({ text: `Couldn't clear job data. ${response.error.message}`, code: response.error.code, error: true });
       return;
     }
-    const { deleted_jobs: deleted, failed_files: failedFiles } = response.result;
+    const { deleted_jobs: deleted, deleted_runs: deletedRuns, failed_files: failedFiles } = response.result;
     if (failedFiles.length) {
       toast({
         text: `Cleared ${plural(deleted, "job")}, but ${plural(failedFiles.length, "file")} couldn't be removed: ${failedFiles.slice(0, 3).join(", ")}${failedFiles.length > 3 ? "…" : ""}`,
         error: true,
       });
-    } else toast({ text: `Cleared ${plural(deleted, "job")}` });
+    } else toast({ text: `Cleared ${plural(deleted, "job")} and ${plural(deletedRuns, "run")}` });
     refreshCatalog();
     void loadPreview();
   };
@@ -304,7 +377,7 @@ export function DataSection() {
     <section aria-labelledby="data-title">
       <header className="section-header">
         <h2 id="data-title">Automatic cleanup</h2>
-        <p className="muted">Jobs not in your Shortlist are removed a set number of days after they were first found. Logs follow the same limit.</p>
+        <p className="muted">Jobs not in your Shortlist are removed a set number of days after they were first found. Run history and logs follow the same limit.</p>
       </header>
       <div className="retention-row">
         <label htmlFor="retention-days">Keep jobs for</label>
@@ -354,7 +427,7 @@ export function DataSection() {
       <hr className="divider" />
       <header className="section-header">
         <h2>Clear job data</h2>
-        <p className="muted">Removes every job that isn't in your Shortlist, plus logs and temporary files. Your Shortlist and settings stay.</p>
+        <p className="muted">Removes every job that isn't in your Shortlist, plus run history, logs and temporary files. Your Shortlist and settings stay.</p>
       </header>
       <div>
         <button type="button" className="button button-danger" onClick={() => void openClear()}>
@@ -373,8 +446,8 @@ export function DataSection() {
             <ErrorText error={confirm.error} block />
           ) : confirm.data ? (
             <p>
-              This deletes <strong>{plural(confirm.data.jobs, "job")}</strong> that {confirm.data.jobs === 1 ? "isn't" : "aren't"} in your Shortlist, plus logs and
-              temporary files. Your <strong>{plural(confirm.data.applications, "Shortlist job")}</strong> (with details, status and notes) and settings are kept.
+              This deletes <strong>{plural(confirm.data.jobs, "job")}</strong> that {confirm.data.jobs === 1 ? "isn't" : "aren't"} in your Shortlist,{" "}
+              {plural(confirm.data.runs, "run")} from Runs, plus logs and temporary files. Your <strong>{plural(confirm.data.applications, "Shortlist job")}</strong> (with details, status and notes) and settings are kept.
               This can't be undone.
             </p>
           ) : (

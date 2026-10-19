@@ -4,9 +4,13 @@ import type { SettingsSection } from "./context";
 import { themes, type Mode, type Theme, type UiPrefs } from "./prefs";
 import { useRequest } from "./requests";
 import { DataSection, SearchesSection } from "./SettingsData";
+import { FiltersSection } from "./SettingsFilters";
+import { ProxySection } from "./SettingsProxy";
 
 const sections: [SettingsSection, string][] = [
   ["searches", "Searches"],
+  ["filters", "Filters & scoring"],
+  ["proxy", "Proxy"],
   ["data", "Data"],
   ["appearance", "Appearance"],
   ["about", "About"],
@@ -37,9 +41,14 @@ export function Settings(props: {
           </button>
         ))}
       </nav>
-      <div className="settings-content">
+      {/* Keyed by section so each section opens at the top. */}
+      <div className="settings-content" key={section}>
         {section === "searches" ? (
           <SearchesSection />
+        ) : section === "filters" ? (
+          <FiltersSection />
+        ) : section === "proxy" ? (
+          <ProxySection />
         ) : section === "data" ? (
           <DataSection />
         ) : section === "appearance" ? (

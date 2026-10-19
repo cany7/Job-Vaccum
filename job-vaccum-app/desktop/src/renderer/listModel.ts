@@ -18,6 +18,8 @@ export interface Salary {
 export interface ListFilter {
   text?: string;
   direction_ids?: string[];
+  /** Jobs only: retrieval runs (batches); a job belongs to the run that first found it. */
+  run_ids?: string[];
   sources?: string[];
   companies?: string[];
   locations?: string[];
@@ -38,6 +40,7 @@ export interface ListFilter {
 export type FilterKey =
   | "text"
   | "direction_ids"
+  | "run_ids"
   | "score"
   | "in_applications"
   | "application_statuses"
@@ -54,6 +57,7 @@ export type FilterKey =
 export const filterNames: Record<FilterKey, string> = {
   text: "Search",
   direction_ids: "Searches",
+  run_ids: "Batch",
   score: "Score",
   in_applications: "In Shortlist",
   application_statuses: "Status",
@@ -68,9 +72,9 @@ export const filterNames: Record<FilterKey, string> = {
   salary: "Salary",
 };
 
-/** Dimensions offered by + Filter on each page (batch filters arrive with runs in M2). */
+/** Dimensions offered by + Filter on each page; batches are a Jobs filter. */
 export const filterMenus: Record<ListPage, FilterKey[]> = {
-  jobs: ["direction_ids", "score", "in_applications", "companies", "locations", "job_types", "sources", "first_seen", "date_posted", "salary"],
+  jobs: ["direction_ids", "run_ids", "score", "in_applications", "companies", "locations", "job_types", "sources", "first_seen", "date_posted", "salary"],
   shortlist: ["direction_ids", "application_statuses", "score", "companies", "locations", "job_types", "sources", "added", "updated", "first_seen", "date_posted", "salary"],
 };
 
@@ -78,6 +82,7 @@ export function activeKeys(filter: ListFilter): FilterKey[] {
   const keys: FilterKey[] = [];
   if (filter.text) keys.push("text");
   if (filter.direction_ids?.length) keys.push("direction_ids");
+  if (filter.run_ids?.length) keys.push("run_ids");
   if (filter.score_min != null || filter.score_max != null || filter.score_states?.length) keys.push("score");
   if (filter.in_applications != null) keys.push("in_applications");
   if (filter.application_statuses?.length) keys.push("application_statuses");
@@ -132,6 +137,7 @@ export function toFilterSpec(page: ListPage, filter: ListFilter): FilterSpec {
   if (filter.score_min != null) spec.score_min = filter.score_min;
   if (filter.score_max != null) spec.score_max = filter.score_max;
   if (page === "jobs" && filter.in_applications != null) spec.in_applications = filter.in_applications;
+  if (page === "jobs" && filter.run_ids?.length) spec.run_ids = filter.run_ids;
   if (page === "shortlist" && filter.application_statuses?.length) spec.application_statuses = filter.application_statuses;
   const timed = [["first_seen", filter.first_seen]] as [string, DateRange | undefined][];
   if (page === "shortlist") timed.push(["added", filter.added], ["updated", filter.updated]);
@@ -178,12 +184,20 @@ function rangeLabel(range: DateRange) {
   return range.to ? `until ${show(range.to)}` : "";
 }
 
-export function chipLabel(key: FilterKey, filter: ListFilter, directionName: (id: string) => string): string {
+/** Display names for IDs held in filters (searches and batches). */
+export interface FilterNames {
+  direction: (id: string) => string;
+  run: (id: string) => string;
+}
+
+export function chipLabel(key: FilterKey, filter: ListFilter, names: FilterNames): string {
   switch (key) {
     case "text":
       return `Search: ${filter.text}`;
     case "direction_ids":
-      return `Searches: ${list(filter.direction_ids!, directionName)}`;
+      return `Searches: ${list(filter.direction_ids!, names.direction)}`;
+    case "run_ids":
+      return `Batch: ${list(filter.run_ids!, names.run)}`;
     case "score": {
       const parts: string[] = [];
       const { score_min: min, score_max: max } = filter;
@@ -337,6 +351,7 @@ function readFilter(page: ListPage, value: unknown): ListFilter {
   if (isScore(raw.score_min)) filter.score_min = raw.score_min;
   if (isScore(raw.score_max) && (filter.score_min == null || raw.score_max >= filter.score_min)) filter.score_max = raw.score_max;
   if (page === "jobs" && typeof raw.in_applications === "boolean") filter.in_applications = raw.in_applications;
+  if (page === "jobs" && isStringArray(raw.run_ids) && raw.run_ids.length) filter.run_ids = raw.run_ids;
   if (page === "shortlist" && isStringArray(raw.application_statuses)) {
     const chosen = raw.application_statuses.filter((status): status is ApplicationStatus => statuses.includes(status as ApplicationStatus));
     if (chosen.length) filter.application_statuses = chosen;

@@ -1,4 +1,4 @@
-import type { ApplicationStatus, JobSummary, ScoreState } from "./api";
+import type { ApplicationStatus, JobSummary, RunStage, RunStatus, RunSummary, ScoreState } from "./api";
 
 export const statuses: ApplicationStatus[] = ["new", "applied", "oa", "interviewing", "offer", "rejected", "ghosted"];
 export const statusLabels: Record<ApplicationStatus, string> = {
@@ -33,6 +33,21 @@ export const jobTypeLabel = (type: string) => jobTypeLabels[type] ?? type;
 export const knownJobTypes = Object.keys(jobTypeLabels);
 export const knownSites = Object.keys(siteLabels);
 
+export const runStatusLabels: Record<RunStatus, string> = {
+  running: "Running",
+  stopping: "Stopping",
+  succeeded: "Completed",
+  partial: "Partly completed",
+  failed: "Failed",
+  stopped: "Stopped",
+  interrupted: "Interrupted",
+};
+/** Dot color group for a run status. */
+export const runStatusTone = (status: RunStatus) =>
+  status === "running" || status === "stopping" ? "pending" : status === "succeeded" ? "ok" : status === "stopped" ? "neutral" : "error";
+export const runStageLabels: Record<Exclude<RunStage, null>, string> = { retrieving: "Searching", scoring: "Scoring", cleaning: "Finishing" };
+export const isActiveRun = (status: RunStatus) => status === "running" || status === "stopping";
+
 const thisYear = new Date().getFullYear();
 const dayFormat = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
 const dayYearFormat = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -45,6 +60,15 @@ function shortDay(date: Date) {
 /** UTC milliseconds shown as a short local date. */
 export const formatDay = (ms: number | null | undefined) => (ms == null ? "" : shortDay(new Date(ms)));
 export const formatTime = (ms: number | null | undefined) => (ms == null ? "" : timeFormat.format(new Date(ms)));
+const batchDay = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+const batchYear = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+/** A run's start as shown for batches and in Runs, e.g. "Oct 18, 09:00". */
+export const formatRunTime = (ms: number) => {
+  const date = new Date(ms);
+  return (date.getFullYear() === thisYear ? batchDay : batchYear).format(date);
+};
+/** Batch option label, e.g. "Oct 18, 09:00 · 42 new". */
+export const batchLabel = (run: Pick<RunSummary, "started_at" | "new_job_count">) => `${formatRunTime(run.started_at)} · ${run.new_job_count.toLocaleString("en-US")} new`;
 
 /** Source dates stay calendar dates (YYYY-MM-DD); never shifted through a time zone. */
 export function formatPosted(date: string | null | undefined) {

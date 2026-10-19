@@ -1,17 +1,28 @@
 import { createContext, useContext } from "react";
-import type { ApiError, ApiResult, Direction, JobVaccumApi } from "./api";
+import type { ActiveRun, ApiError, ApiResult, Direction, JobVaccumApi, RunSummary, Settings } from "./api";
 import type { ListPage } from "./listModel";
 
-export type Page = ListPage | "settings";
-export type SettingsSection = "searches" | "data" | "appearance" | "about";
+export type Page = ListPage | "runs" | "settings";
+export type SettingsSection = "searches" | "filters" | "proxy" | "data" | "appearance" | "about";
 
 /** Searches and sidebar counts, reloaded whenever job data changes. */
 export interface Catalog {
   directions: Direction[];
+  /** Full non-secret settings for the Settings sections; null until first loaded. */
+  settings: Settings | null;
   retentionDays: number | null;
   jobs: number | null;
   shortlist: number | null;
   byDirection: Record<string, number>;
+  error?: ApiError;
+}
+
+/** Retrieval runs (newest first, up to 200) and the active run, reloaded on run events. */
+export interface RunsState {
+  items: RunSummary[];
+  total: number;
+  active: ActiveRun | null;
+  loaded: boolean;
   error?: ApiError;
 }
 
@@ -21,6 +32,10 @@ export interface AppContextValue {
   api: JobVaccumApi;
   catalog: Catalog;
   refreshCatalog: () => void;
+  runs: RunsState;
+  refreshRuns: () => void;
+  /** Bumped on every run event, so an open run detail reloads. */
+  runVersion: number;
   /**
    * Runs a change the UI already refreshes after, so its jobs.changed event is
    * not reported as an outside update ("Results updated").
@@ -32,6 +47,8 @@ export interface AppContextValue {
   outsideChanges: number;
   waitForOperation: (operationId: string) => Promise<OperationResult>;
   navigate: (page: Page, section?: SettingsSection) => void;
+  /** Shows Jobs filtered to the jobs first found by one run. */
+  openBatch: (runId: string) => void;
   narrow: boolean;
 }
 

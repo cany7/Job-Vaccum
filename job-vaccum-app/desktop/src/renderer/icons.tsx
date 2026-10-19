@@ -77,6 +77,13 @@ export const SearchesIcon = () => (
   </Icon>
 );
 
+export const RunsIcon = ({ size }: { size?: number }) => (
+  <Icon size={size}>
+    <path d="M2.5 13.25V3.5M2.5 13.25h11" />
+    <path d="M5.25 10.5v-2.5M8 10.5V5.5M10.75 10.5V7.5" strokeWidth="1.6" />
+  </Icon>
+);
+
 export const ChevronDown = ({ size = 10 }: { size?: number }) => (
   <Icon size={size}>
     <path d="m4 6 4 4 4-4" strokeWidth="1.8" />
