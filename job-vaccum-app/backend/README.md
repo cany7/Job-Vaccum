@@ -102,6 +102,9 @@ The bundled Python dylib declares macOS minimum 15.6; older macOS releases have
 not been tested. PyInstaller reports optional jinja2 and Windows DLL warnings;
 the required native imports pass without adding those optional dependencies.
 
-This is a local backend payload with PyInstaller ad hoc signing. Full `.app`/DMG
-integration, GUI checks, a clean-machine installation, Developer ID signing, and
-notarization remain outstanding; M0 as a whole is not complete.
+This is a local backend payload with PyInstaller ad hoc signing. M0 desktop
+integration and the complete arm64 `.app`/DMG are now implemented; see
+`../desktop/README.md` for build/start/installed-window tests. The DMG-installed
+App passed an isolated run on the development Mac without the project venv or
+source. A second physical Mac, Developer ID signing and notarization remain
+untested/unavailable; this is not a publicly signed release.

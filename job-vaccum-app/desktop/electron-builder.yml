@@ -1,0 +1,24 @@
+appId: dev.jobvaccum.desktop
+productName: Job Vaccum
+electronVersion: 44.9.0
+directories:
+  output: ../release
+files:
+  - dist/**/*
+  - package.json
+extraResources:
+  - from: ../dist/backend/job-vaccum-service
+    to: backend/job-vaccum-service
+asar: true
+mac:
+  target:
+    - target: dmg
+      arch: arm64
+  category: public.app-category.productivity
+  minimumSystemVersion: '15.6'
+  identity: null
+  hardenedRuntime: false
+  notarize: false
+dmg:
+  sign: false
+artifactName: Job-Vaccum-${version}-${arch}.${ext}
