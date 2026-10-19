@@ -84,6 +84,15 @@ jobs:
         working-directory: job-vaccum-app/backend
         run: uv sync --locked --python "$(cat ../.python-version)"
       - run: npm ci
+      - name: Prepare Electron and desktop display
+        run: |
+          npx --no-install install-electron
+          curl --fail --location --output "$RUNNER_TEMP/displayplacer" \
+            https://github.com/jakehilborn/displayplacer/releases/download/v1.4.0/displayplacer-apple-v140
+          chmod +x "$RUNNER_TEMP/displayplacer"
+          "$RUNNER_TEMP/displayplacer" list
+          screen_id=$("$RUNNER_TEMP/displayplacer" list | awk '/^Persistent screen id:/ {print $4; exit}')
+          "$RUNNER_TEMP/displayplacer" "id:$screen_id res:1920x1080"
       - name: Run desktop E2E
         env:
           FULL_E2E: ${{ inputs.full_e2e || false }}
