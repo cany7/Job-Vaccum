@@ -88,7 +88,7 @@ def build_filter(params, *, paged=False):
         elif key == 'sources':
             clauses.append(f"EXISTS (SELECT 1 FROM json_each(j.sources_json) s WHERE json_extract(s.value,'$.site') IN ({slots}))")
         elif key == 'run_ids':
-            raise CommandError('Batch filters require M2 pipeline runs.')
+            clauses.append(f"EXISTS (SELECT 1 FROM run_jobs r JOIN runs run ON run.id=r.run_id WHERE r.job_id=j.id AND r.is_new=1 AND run.kind='pipeline' AND r.run_id IN ({slots}))")
         else:
             clauses.append(f'{column} IN ({slots})')
         values.extend(items)
@@ -164,3 +164,11 @@ def build_filter(params, *, paged=False):
     page = integer(params.get('page', 1), 'page', 1, 2**31-1)
     page_size = integer(params.get('page_size', 50), 'page_size', 1, 200)
     return ' AND '.join(clauses) or '1', values, f'({column}) IS NULL ASC, {column} {order}, j.id ASC', page, page_size
+
+
+def validate_run_ids(db, params):
+    ids = strings(params.get('run_ids', []), 'run_ids')
+    if ids:
+        slots = ','.join('?' for _ in ids)
+        if db.execute(f"SELECT 1 FROM runs WHERE id IN ({slots}) AND kind!='pipeline'", ids).fetchone():
+            raise CommandError('Batch filters accept pipeline run IDs only.')

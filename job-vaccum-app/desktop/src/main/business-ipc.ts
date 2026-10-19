@@ -5,6 +5,7 @@ import path from 'node:path';
 import type { ApiResult, ServiceEvent } from '../shared/api';
 import { businessMethods } from '../shared/protocol';
 import type { Backend } from './backend';
+import { proxyCredentials } from './proxy-credentials';
 
 const invalid = (message: string): ApiResult<never> => ({ ok: false, error: { code: 'VALIDATION_ERROR', message, retryable: false } });
 
@@ -26,12 +27,25 @@ async function resolveCsvDestination(dataDir: string, destination: string): Prom
 
 export function registerBusinessIpc(backend: Backend, getWindow: () => BrowserWindow | null,
   assertSender: (event: IpcMainInvokeEvent) => void, dataDir: string) {
+  const credentials = proxyCredentials(backend, dataDir);
+  ipcMain.handle('credentials:set-proxy', (event, params: { url: string }) => {
+    assertSender(event);
+    return credentials.set(params);
+  });
+  ipcMain.handle('credentials:delete-proxy', (event) => {
+    assertSender(event);
+    return credentials.delete();
+  });
   const destinations = new Map<string, string>();
   const exports = new Map<string, { path: string; operation_id?: string; complete: boolean }>();
   for (const [channel, method] of Object.entries(businessMethods)) {
-    ipcMain.handle(channel, (event, params: Record<string, unknown>) => {
+    ipcMain.handle(channel, async (event, params: Record<string, unknown>) => {
       assertSender(event);
       if (method === 'dev.import_synthetic' && app.isPackaged) return invalid('Synthetic fixtures are available only in development.');
+      if (['runs.start', 'runs.resume', 'runs.preview', 'settings.get'].includes(method)) {
+        const injected = await credentials.inject();
+        if (!injected.ok) return injected;
+      }
       return backend.request(method, params);
     });
   }

@@ -30,6 +30,12 @@ if (mode === 'never-ready') {
   }
   readline.createInterface({ input: process.stdin }).on('line', (line) => {
     const request = JSON.parse(line);
+    if (mode === 'owned-child') {
+      const child = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'inherit' });
+      process.stdout.write(JSON.stringify({ type: 'response', id: request.id, ok: true, result: { child_pid: child.pid } }) + '\n');
+      setTimeout(() => process.exit(3), 30);
+      return;
+    }
     if (mode === 'exit') process.exit(3);
     if (mode === 'invalid') return process.stdout.write('invalid-json\n');
     if (mode === 'oversized') return process.stdout.write('x'.repeat(1024 * 1024 + 1));
@@ -38,6 +44,14 @@ if (mode === 'never-ready') {
       return;
     }
     if (mode === 'wait-for-requests') return;
+    if (mode === 'run-events') {
+      process.stdout.write(JSON.stringify({ type: 'response', id: request.id, ok: true, result: { run_id: 'synthetic-run' } }) + '\n');
+      for (const [seq, name, data] of [[2, 'run.updated', { run_id: 'synthetic-run', status: 'running', stage: 'retrieving' }],
+        [3, 'run.stats', { run_id: 'synthetic-run', retrieval: { total: 1, active: 1 }, scoring: { total: 0, active: 0 } }]]) {
+        process.stdout.write(JSON.stringify({ type: 'event', name, seq, data }) + '\n');
+      }
+      return;
+    }
     outputs.push(JSON.stringify({ type: 'response', id: request.id, ok: true, result: request.params }) + '\n');
     flush();
   });

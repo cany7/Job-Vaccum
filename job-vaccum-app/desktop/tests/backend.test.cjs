@@ -63,3 +63,38 @@ test('quit settles pending calls and closes owned service', { timeout: 5000 }, a
   await backend.stop();
   assert.equal((await request).error.code, 'CANCELLED');
 });
+
+
+test('run notifications pass through transport after accepted start', { timeout: 5000 }, async () => {
+  const backend = peer('run-events');
+  try {
+    await ready(backend);
+    const events = [];
+    let finish;
+    const received = new Promise(resolve => { finish = resolve; });
+    backend.on('service-event', event => { events.push(event); if (events.length === 2) finish(); });
+    assert.equal((await backend.request('runs.start')).result.run_id, 'synthetic-run');
+    await received;
+    assert.deepEqual(events.map(event => event.name), ['run.updated', 'run.stats']);
+    assert.equal(backend.state.phase, 'ready');
+  } finally { await backend.stop(); }
+});
+
+
+test('service crash terminates its owned child even when that child holds stdio', { timeout: 5000 }, async () => {
+  const backend = peer('owned-child');
+  try {
+    await ready(backend);
+    const closed = once(backend, 'closed');
+    const result = await backend.request('app.status');
+    assert.ok(result.result.child_pid > 0);
+    await closed;
+    assert.equal(backend.state.phase, 'exited');
+    let alive = true;
+    for (let index = 0; index < 20 && alive; index++) {
+      try { process.kill(result.result.child_pid, 0); await new Promise(resolve => setTimeout(resolve, 20)); }
+      catch (error) { assert.equal(error.code, 'ESRCH'); alive = false; }
+    }
+    assert.equal(alive, false);
+  } finally { await backend.stop(); }
+});

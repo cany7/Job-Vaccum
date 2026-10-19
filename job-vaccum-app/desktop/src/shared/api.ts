@@ -29,7 +29,7 @@ export interface ApiError {
 export type ApiResult<T> = { ok: true; result: T } | { ok: false; error: ApiError };
 
 export interface AppStatus {
-  active_run: null;
+  active_run: import("./runs").ActiveRun | null;
   operations: unknown[];
   cleanup: { status: string };
   configuration_complete: boolean;

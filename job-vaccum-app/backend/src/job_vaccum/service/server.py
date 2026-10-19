@@ -20,6 +20,8 @@ from job_vaccum.storage.filters import fields, choice
 from job_vaccum.storage.cleanup import Cleanup
 from job_vaccum.storage.export import export_csv, validate_export
 from job_vaccum.storage.synthetic import import_synthetic
+from job_vaccum.pipeline.configuration import draft, proxy_origin
+from job_vaccum.pipeline.runs import Runs
 
 
 def diagnostics(connection: sqlite3.Connection) -> dict:
@@ -41,13 +43,14 @@ def diagnostics(connection: sqlite3.Connection) -> dict:
 
 
 class Service:
-    def __init__(self, connection, root, *, clock=now_ms, enable_dev=False, inbox=None):
+    def __init__(self, connection, root, *, clock=now_ms, enable_dev=False, inbox=None, attempt=None):
         self.repo = Repository(connection, clock)
         self.root = root
         self.cleanup = Cleanup(self.repo, root)
         self.enable_dev = enable_dev and not getattr(sys, "frozen", False)
         self.operations = {}
-        self.inbox = inbox
+        self.inbox = inbox if inbox is not None else queue.Queue()
+        self.runs = Runs(self.repo, self.inbox, **({"attempt": attempt} if attempt else {}))
 
     def dispatch(self, method, params, request_id=None):
         if method == "app.ping":
@@ -59,13 +62,19 @@ class Service:
             if method == "app.diagnostics":
                 return diagnostics(self.repo.db)
             if method == "settings.get":
-                return self.repo.settings()
-            return {"active_run": None, "operations": [{"operation_id": key, "kind": "export"} for key in self.operations],
-                    "cleanup": {"status": "idle"}, "configuration_complete": False,
+                return self.settings()
+            return {"active_run": self.runs.active(), "operations": [{"operation_id": key, "kind": "export"} for key in self.operations],
+                    "cleanup": {"status": "idle"}, "configuration_complete": self.configuration_complete(),
                     "storage": {"schema_version": SCHEMA_VERSION, "journal_mode": "wal"}}
         commands = {
             "jobs.list": self.repo.list_jobs, "jobs.detail": self.repo.detail,
-            "settings.save": self.repo.save_settings,
+            "settings.save": lambda p: self.save_settings(p),
+            "drafts.get": lambda p: draft(self.repo, "get", p),
+            "drafts.save": lambda p: draft(self.repo, "save", p),
+            "drafts.apply": lambda p: draft(self.repo, "apply", p),
+            "runs.preview": self.runs.preview, "runs.start": self.runs.start,
+            "runs.list": self.runs.list, "runs.detail": self.runs.detail,
+            "runs.stop": self.runs.stop, "runs.resume": self.runs.resume,
             "directions.save": self.repo.direction_save, "directions.delete": self.repo.direction_delete,
             "directions.reorder": self.repo.direction_reorder,
             "queries.save": self.repo.query_save, "queries.delete": self.repo.query_delete,
@@ -81,9 +90,15 @@ class Service:
             mode = choice(params["mode"], "mode", ("manual", "automatic") if method.endswith("preview") else ("manual",))
             if method == "cleanup.preview":
                 return self.cleanup.preview(mode)
-            if self.operations:
+            if self.operations or self.runs.active():
                 raise CommandError("Wait for the active operation before cleaning data.", "BUSY")
             return self.cleanup.execute(mode)
+        if method == "internal.credentials":
+            fields(params, {"proxy_url"}, {"proxy_url"})
+            if params['proxy_url'] is not None:
+                proxy_origin(params['proxy_url'], credentials=True)
+            self.runs.proxy_credential = params['proxy_url']
+            return {"has_proxy_credentials": params['proxy_url'] is not None}
         if method == "dev.import_synthetic" and self.enable_dev:
             return import_synthetic(self.repo, params)
         if method == "export.csv":
@@ -102,9 +117,23 @@ class Service:
             return {"operation_id": operation_id}
         raise CommandError("Unknown method for this backend milestone.", "NOT_FOUND")
 
+    def settings(self):
+        return {**self.repo.settings(), 'has_key': False, 'has_proxy_credentials': self.runs.proxy_credential is not None}
+
+    def save_settings(self, params):
+        self.repo.save_settings(params)
+        return self.settings()
+
+    def configuration_complete(self):
+        try:
+            self.runs.preview({})
+            return True
+        except CommandError:
+            return False
+
 
 def serve(root: Path, source: BinaryIO, destination: BinaryIO, *, clock=now_ms, enable_dev=False,
-          cleanup_interval=60) -> None:
+          cleanup_interval=60, attempt=None) -> None:
     # Only this receive loop writes SQLite or protocol output. The input reader and
     # CSV worker submit messages; neither shares the writer connection.
     inbox = queue.Queue(maxsize=64)
@@ -118,63 +147,78 @@ def serve(root: Path, source: BinaryIO, destination: BinaryIO, *, clock=now_ms, 
         finally:
             inbox.put(("eof", None))
     with closing(connect(root / "app.sqlite3")) as connection:
-        service = Service(connection, root, clock=clock, enable_dev=enable_dev, inbox=inbox)
+        service = Service(connection, root, clock=clock, enable_dev=enable_dev, inbox=inbox, attempt=attempt)
         service.cleanup.clear_tmp()
         service.cleanup.execute("automatic")
         seq = 0
         def event(name, data):
             nonlocal seq
+            if name == 'run.updated' and data['status'] not in ('running', 'stopping'):
+                service.cleanup.clear_tmp()
             seq += 1
             write(destination, {"type": "event", "name": name, "seq": seq, "data": data})
         event("ready", {"protocol_version": PROTOCOL_VERSION, "app_version": APP_VERSION, "schema_version": SCHEMA_VERSION})
         threading.Thread(target=read_input, name="protocol-input", daemon=True).start()
         deadline = time.monotonic() + cleanup_interval
         ended = False
-        while not ended or service.operations:
-            timeout = max(0, deadline - time.monotonic())
-            try:
-                kind, payload = inbox.get(timeout=timeout)
-            except queue.Empty:
-                kind, payload = "tick", None
-            if time.monotonic() >= deadline:
-                if not service.operations:
-                    try:
-                        cleaned = service.cleanup.execute("automatic")
-                        if cleaned["deleted_jobs"] or cleaned["deleted_files"] or cleaned["failed_files"]:
-                            event("cleanup.completed", cleaned)
-                            if cleaned["deleted_jobs"]:
-                                event("jobs.changed", {})
-                    except Exception:
-                        logging.error("CLEANUP_ERROR: Automatic cleanup failed.")
-                deadline = time.monotonic() + cleanup_interval
-            if kind == "eof":
-                ended = True
-                continue
-            if kind == "export":
-                operation_id, result, error = payload
-                service.operations.pop(operation_id)
-                event("operation.failed" if error else "operation.completed",
-                      {"operation_id": operation_id, **({"error": error} if error else result)})
-                continue
-            if kind != "request":
-                continue
-            request_id = None
-            succeeded = False
-            try:
-                request_id, method, request = decode(payload)
-                result = service.dispatch(method, validate(request), request_id)
-                response = {"type": "response", "id": request_id, "ok": True, "result": result}
-                succeeded = True
-            except CommandError as exc:
-                response = {"type": "response", "id": request_id, "ok": False,
-                            "error": {"code": exc.code, "message": str(exc), "retryable": False}}
-            except Exception:
-                logging.error("INTERNAL_ERROR: Backend command failed.")
-                response = {"type": "response", "id": request_id, "ok": False,
-                            "error": {"code": "INTERNAL_ERROR", "message": "Backend command failed.", "retryable": False}}
-            write(destination, response)
-            if succeeded and method == "cleanup.execute":
-                event("cleanup.completed", result)
-            if succeeded and (method.startswith(("applications.", "directions.", "queries."))
-                              or method in {"dev.import_synthetic", "cleanup.execute"}):
-                event("jobs.changed", {})
+        try:
+            while not ended or service.operations or service.runs.active():
+                timeout = max(0, deadline - time.monotonic())
+                try:
+                    kind, payload = inbox.get(timeout=timeout)
+                except queue.Empty:
+                    kind, payload = "tick", None
+                if time.monotonic() >= deadline:
+                    if not service.operations and not service.runs.active():
+                        try:
+                            cleaned = service.cleanup.execute("automatic")
+                            if cleaned["deleted_jobs"] or cleaned["deleted_runs"] or cleaned["deleted_files"] or cleaned["failed_files"]:
+                                event("cleanup.completed", cleaned)
+                                if cleaned["deleted_jobs"]:
+                                    event("jobs.changed", {})
+                        except Exception:
+                            logging.error("CLEANUP_ERROR: Automatic cleanup failed.")
+                    deadline = time.monotonic() + cleanup_interval
+                if kind == "eof":
+                    ended = True
+                    active = service.runs.active()
+                    if active:
+                        service.runs.stop({'run_id': active['run_id']})
+                        service.runs.advance(event)
+                    continue
+                if kind in ('retrieval_attempt', 'retrieval_result'):
+                    service.runs.handle(kind, payload, event)
+                    continue
+                if kind == "export":
+                    operation_id, result, error = payload
+                    service.operations.pop(operation_id)
+                    event("operation.failed" if error else "operation.completed",
+                          {"operation_id": operation_id, **({"error": error} if error else result)})
+                    continue
+                if kind != "request":
+                    continue
+                request_id = None
+                succeeded = False
+                try:
+                    request_id, method, request = decode(payload)
+                    result = service.dispatch(method, validate(request), request_id)
+                    response = {"type": "response", "id": request_id, "ok": True, "result": result}
+                    succeeded = True
+                except CommandError as exc:
+                    response = {"type": "response", "id": request_id, "ok": False,
+                                "error": {"code": exc.code, "message": str(exc), "retryable": False}}
+                except Exception:
+                    logging.error("INTERNAL_ERROR: Backend command failed.")
+                    response = {"type": "response", "id": request_id, "ok": False,
+                                "error": {"code": "INTERNAL_ERROR", "message": "Backend command failed.", "retryable": False}}
+                write(destination, response)
+                if succeeded and method == "cleanup.execute":
+                    event("cleanup.completed", result)
+                if succeeded and (method.startswith(("applications.", "directions.", "queries."))
+                                  or method in {"dev.import_synthetic", "cleanup.execute", "drafts.apply"}):
+                    event("jobs.changed", {})
+                if succeeded and method in {"runs.start", "runs.resume", "runs.stop"}:
+                    service.runs.notifications(result['run_id'], event)
+                    service.runs.advance(event)
+        finally:
+            service.runs.close()

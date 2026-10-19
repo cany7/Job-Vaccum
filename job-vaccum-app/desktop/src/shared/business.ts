@@ -1,4 +1,6 @@
 import type { ApiError, ApiResult } from './api';
+import type { PipelineSettings, SettingsPatch, RunStats, ActiveRun, RunsApi } from './runs';
+export type * from './runs';
 
 export type ApplicationStatus = 'new' | 'applied' | 'oa' | 'interviewing' | 'offer' | 'rejected' | 'ghosted';
 export type ScoreState = 'unscored' | 'pending' | 'running' | 'succeeded' | 'failed';
@@ -18,11 +20,11 @@ export interface FilterSpec {
 }
 export interface Query { id: string; direction_id: string; expression: string; enabled: boolean }
 export interface Direction { id: string; name: string; enabled: boolean; sort_order: number; queries: Query[] }
-export interface Settings { retention_days: number; directions: Direction[] }
+export interface Settings extends PipelineSettings { directions: Direction[]; has_key: boolean; has_proxy_credentials: boolean }
 export interface Application { status: ApplicationStatus; notes: string; added_at: number; updated_at: number }
 export interface ApplicationRecord extends Application { job_id: string }
 export interface RestoreItem { job_id: string; status: ApplicationStatus; updated_at: number; notes?: string; added_at?: number }
-export interface Source { site: string; id: string; url: string | null; direct_url: string | null }
+export interface Source { site: string; id: string | null; url: string | null; direct_url: string | null }
 export interface JobSummary {
   id: string; company: string | null; title: string; location: string | null; job_type: string | null;
   score: number | null; score_reason: string | null; score_state: ScoreState;
@@ -46,15 +48,17 @@ export interface ExportCsvParams {
   include_jd: boolean; destination_token: string;
 }
 export type ServiceEvent =
+  | { type: 'event'; name: 'run.updated'; seq: number; data: ActiveRun }
+  | { type: 'event'; name: 'run.stats'; seq: number; data: { run_id: string } & Omit<RunStats, 'directions'> }
   | { type: 'event'; name: 'jobs.changed'; seq: number; data: Record<string, never> }
   | { type: 'event'; name: 'cleanup.completed'; seq: number; data: CleanupResult }
   | { type: 'event'; name: 'operation.completed'; seq: number; data: { operation_id: string; row_count: number } }
   | { type: 'event'; name: 'operation.failed'; seq: number; data: { operation_id: string; error: ApiError } };
-export interface BusinessApi {
+export interface BusinessApi extends RunsApi {
   listJobs(params: FilterSpec & { sort?: Sort; page?: number; page_size?: number }): Promise<ApiResult<{ items: JobSummary[]; total: number }>>;
   getJobDetail(params: { job_id: string }): Promise<ApiResult<JobDetail>>;
   getSettings(): Promise<ApiResult<Settings>>;
-  saveSettings(params: { retention_days: number }): Promise<ApiResult<Settings>>;
+  saveSettings(params: SettingsPatch): Promise<ApiResult<Settings>>;
   saveDirection(params: { id?: string; name?: string; enabled?: boolean }): Promise<ApiResult<Direction>>;
   deleteDirection(params: { id: string }): Promise<ApiResult<{ deleted: boolean }>>;
   reorderDirections(params: { ids: string[] }): Promise<ApiResult<{ directions: Direction[] }>>;

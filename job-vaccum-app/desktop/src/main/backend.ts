@@ -32,7 +32,7 @@ export class Backend extends EventEmitter {
   constructor(private options: BackendOptions) {
     super();
     this.child = spawn(options.executable, [...options.args, "--data-dir", options.dataDir], {
-      cwd: options.dataDir, stdio: "pipe", shell: false,
+      cwd: options.dataDir, stdio: "pipe", shell: false, detached: true,
       env: { ...process.env, PYTHONUNBUFFERED: "1" },
     });
     this.startup = setTimeout(() => this.fail("The backend did not become ready within 10 seconds."), options.startupMs ?? 10_000);
@@ -45,6 +45,9 @@ export class Backend extends EventEmitter {
       if (!this.stopping) this.fail("The backend input channel closed unexpectedly.");
     });
     this.child.on("error", () => this.fail("Could not launch the local backend. Check the application installation or development environment."));
+    // exit fires even if a scrape child still holds inherited stdio open;
+    // waiting for close here would leave those children alive indefinitely.
+    this.child.once("exit", () => this.killGroup("SIGKILL"));
     this.child.on("close", (code, signal) => {
       this.closed = true;
       clearTimeout(this.startup);
@@ -102,7 +105,7 @@ export class Backend extends EventEmitter {
       return;
     }
     if (message.type === "event") {
-      if (!["jobs.changed", "cleanup.completed", "operation.completed", "operation.failed"].includes(message.name)
+      if (!["run.updated", "run.stats", "jobs.changed", "cleanup.completed", "operation.completed", "operation.failed"].includes(message.name)
         || !Number.isInteger(message.seq) || !message.data) throw new Error("Unexpected event");
       // Let response promises register operation IDs before completion is delivered.
       queueMicrotask(() => this.emit("service-event", message));
@@ -144,6 +147,14 @@ export class Backend extends EventEmitter {
     this.pending.clear();
   }
 
+  private killGroup(signal: NodeJS.Signals) {
+    if (this.child.pid) {
+      try { process.kill(-this.child.pid, signal); } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+      }
+    }
+  }
+
   stop(): Promise<void> {
     this.shutdown ??= this.stopOwnedProcess();
     return this.shutdown;
@@ -162,7 +173,7 @@ export class Backend extends EventEmitter {
         this.once("closed", onClose);
       });
       if (this.closed) return;
-      if (signal) this.child.kill(signal);
+      if (signal) this.killGroup(signal);
     }
   }
 }

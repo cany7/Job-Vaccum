@@ -1,5 +1,6 @@
 import argparse
 import logging
+import multiprocessing
 from pathlib import Path
 import signal
 import sqlite3
@@ -11,6 +12,7 @@ from job_vaccum.storage.paths import DataDirectoryBusy, data_directory
 
 
 def main() -> int:
+    multiprocessing.freeze_support()
     parser = argparse.ArgumentParser(description="Job Vaccum JSON Lines service")
     parser.add_argument("--data-dir", required=True, type=Path,
                         help="Absolute writable directory supplied by Electron main")

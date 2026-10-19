@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from job_vaccum.service.protocol import CommandError, check_result_size
 from job_vaccum.storage.filters import (STATUSES, boolean, build_filter, choice, fields,
-                                       integer, string, strings)
+                                       integer, string, strings, validate_run_ids)
 
 JOIN = 'FROM jobs j LEFT JOIN applications a ON a.job_id=j.id'
 SELECT = 'j.*, a.status AS application_status, a.notes, a.added_at, a.updated_at'
@@ -26,15 +26,12 @@ class Repository:
         self.db, self.clock = db, clock
 
     def settings(self):
-        row = self.db.execute("SELECT value_json FROM settings WHERE key='retention_days'").fetchone()
-        return {'retention_days': json.loads(row[0]) if row else 14, 'directions': self.directions()}
+        from job_vaccum.pipeline.configuration import settings
+        return settings(self)
 
     def save_settings(self, params):
-        fields(params, {'retention_days'}, {'retention_days'})
-        days = integer(params['retention_days'], 'retention_days', 0, 2**31-1)
-        with self.db:
-            self.db.execute("INSERT INTO settings VALUES ('retention_days',?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json", (json.dumps(days),))
-        return self.settings()
+        from job_vaccum.pipeline.configuration import save
+        return save(self, params)
 
     def directions(self):
         result = list(row_dict(self.db.execute('SELECT * FROM directions ORDER BY sort_order,id')))
@@ -142,6 +139,7 @@ class Repository:
         return result
 
     def list_jobs(self, params):
+        validate_run_ids(self.db, params)
         where, values, order, page, page_size = build_filter(params, paged=True)
         # Count and rows describe one snapshot even when another connection writes.
         with self.db:
