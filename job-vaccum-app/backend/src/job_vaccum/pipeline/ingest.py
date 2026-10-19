@@ -14,8 +14,11 @@ def merge_set(old, additions):
 
 
 def same_content(candidate, record):
-    a, b = direct_url(candidate['job_url_direct']), direct_url(record.get('job_url_direct'))
-    return (not (a and b and a != b)
+    incoming = direct_url(record.get('job_url_direct'))
+    existing = {direct_url(candidate['job_url_direct'])}
+    existing.update(direct_url(source.get('direct_url')) for source in json.loads(candidate['sources_json']))
+    existing.discard(None)
+    return (not (incoming and existing and incoming not in existing)
             and description_key(candidate['description']) == description_key(record['description']))
 
 

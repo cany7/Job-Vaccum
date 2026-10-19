@@ -639,3 +639,16 @@ def test_partial_resume_replaces_counts_but_keeps_previous_committed_direction_h
     assert d['stats']['received_count'] == 1  # latest response, not sum of retries/resumes
     assert d['stats']['new_job_count'] == d['stats']['matched_job_count'] == 2
     assert d['stats']['directions'][0]['matched_job_count'] == 2
+
+
+def test_content_link_boundary_uses_later_source_links_when_representative_has_none(service):
+    s = configure(service, sites=['linkedin'])
+    run = start(s)
+    ingest_records(s, run, [record('first', job_url_direct=None)])
+    ingest_records(s, run, [record('other-source', site='indeed', job_url_direct='https://external.example/a')])
+    assert s.repo.list_jobs({})['total'] == 1
+    original = s.repo.list_jobs({})['items'][0]['id']
+    assert s.repo.detail({'job_id': original})['links']['job_url_direct'] is None
+    ingest_records(s, run, [record('different-link', job_url_direct='https://external.example/b')])
+    assert s.repo.list_jobs({})['total'] == 2
+    assert s.repo.detail({'job_id': original})['description'] == 'Build software.'
