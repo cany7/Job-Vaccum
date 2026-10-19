@@ -16,12 +16,13 @@ from job_vaccum import APP_VERSION, JOBSPY_COMMIT, PROTOCOL_VERSION
 from job_vaccum.service.protocol import CommandError, decode, lines, validate, write
 from job_vaccum.storage.database import SCHEMA_VERSION, connect, storage_check
 from job_vaccum.storage.repository import Repository, now_ms
-from job_vaccum.storage.filters import fields, choice
+from job_vaccum.storage.filters import fields, choice, string
 from job_vaccum.storage.cleanup import Cleanup
 from job_vaccum.storage.export import export_csv, validate_export
 from job_vaccum.storage.synthetic import import_synthetic
-from job_vaccum.pipeline.configuration import draft, proxy_origin
+from job_vaccum.pipeline.configuration import draft, proxy_origin, validate_model
 from job_vaccum.pipeline.runs import Runs
+from job_vaccum.llm.pool import LlmPool
 
 
 def diagnostics(connection: sqlite3.Connection) -> dict:
@@ -43,14 +44,16 @@ def diagnostics(connection: sqlite3.Connection) -> dict:
 
 
 class Service:
-    def __init__(self, connection, root, *, clock=now_ms, enable_dev=False, inbox=None, attempt=None):
+    def __init__(self, connection, root, *, clock=now_ms, enable_dev=False, inbox=None, attempt=None, llm_options=None):
         self.repo = Repository(connection, clock)
         self.root = root
         self.cleanup = Cleanup(self.repo, root)
         self.enable_dev = enable_dev and not getattr(sys, "frozen", False)
         self.operations = {}
         self.inbox = inbox if inbox is not None else queue.Queue()
-        self.runs = Runs(self.repo, self.inbox, **({"attempt": attempt} if attempt else {}))
+        self.llm = LlmPool(self.inbox, **(llm_options or {}))
+        self.model_operations = {}
+        self.runs = Runs(self.repo, self.inbox, llm=self.llm, **({"attempt": attempt} if attempt else {}))
 
     def dispatch(self, method, params, request_id=None):
         if method == "app.ping":
@@ -63,11 +66,13 @@ class Service:
                 return diagnostics(self.repo.db)
             if method == "settings.get":
                 return self.settings()
-            return {"active_run": self.runs.active(), "operations": [{"operation_id": key, "kind": "export"} for key in self.operations],
+            return {"active_run": self.runs.active(), "operations": [{"operation_id": key, "kind": "export"} for key in self.operations] +
+                    [{"operation_id": key, "kind": "model_test", "status": 'cancelling' if cancel.is_set() else 'running'} for key, cancel in self.model_operations.items()],
                     "cleanup": {"status": "idle"}, "configuration_complete": self.configuration_complete(),
                     "storage": {"schema_version": SCHEMA_VERSION, "journal_mode": "wal"}}
         commands = {
             "jobs.list": self.repo.list_jobs, "jobs.detail": self.repo.detail,
+            "jobs.score": self.runs.score,
             "settings.save": lambda p: self.save_settings(p),
             "drafts.get": lambda p: draft(self.repo, "get", p),
             "drafts.save": lambda p: draft(self.repo, "save", p),
@@ -90,15 +95,42 @@ class Service:
             mode = choice(params["mode"], "mode", ("manual", "automatic") if method.endswith("preview") else ("manual",))
             if method == "cleanup.preview":
                 return self.cleanup.preview(mode)
-            if self.operations or self.runs.active():
+            if self.operations or self.model_operations or self.runs.active():
                 raise CommandError("Wait for the active operation before cleaning data.", "BUSY")
             return self.cleanup.execute(mode)
         if method == "internal.credentials":
-            fields(params, {"proxy_url"}, {"proxy_url"})
-            if params['proxy_url'] is not None:
+            fields(params, {"proxy_url", "model_key"})
+            if not params:
+                raise CommandError('Provide a credential field.')
+            if params.get('proxy_url') is not None:
                 proxy_origin(params['proxy_url'], credentials=True)
-            self.runs.proxy_credential = params['proxy_url']
-            return {"has_proxy_credentials": params['proxy_url'] is not None}
+            if params.get('model_key') is not None:
+                key = string(params['model_key'], 'API key')
+                if '\r' in key or '\n' in key:
+                    raise CommandError('API key must be a single line.')
+            if 'proxy_url' in params:
+                self.runs.proxy_credential = params['proxy_url']
+            if 'model_key' in params:
+                self.runs.model_key = params['model_key']
+            return {'has_key': self.runs.model_key is not None,
+                    'has_proxy_credentials': self.runs.proxy_credential is not None}
+        if method == 'model.test':
+            fields(params, {'model'})
+            model = params.get('model', self.repo.settings()['model'])
+            validate_model(model)
+            if model is None or not self.runs.model_key:
+                raise CommandError('Configure a model and save an API key before testing.')
+            operation_id, cancel = str(uuid4()), threading.Event()
+            self.model_operations[operation_id] = cancel
+            self.llm.submit(operation_id, model, self.runs.model_key, '', 'Reply with OK.', lambda text: {'connected': True}, cancel)
+            return {'operation_id': operation_id}
+        if method == 'operations.cancel':
+            fields(params, {'operation_id'}, {'operation_id'})
+            identifier = string(params['operation_id'], 'operation_id')
+            if identifier not in self.model_operations:
+                raise CommandError('Model operation not found.', 'NOT_FOUND')
+            self.llm.cancel(identifier)
+            return {'operation_id': identifier}
         if method == "dev.import_synthetic" and self.enable_dev:
             return import_synthetic(self.repo, params)
         if method == "export.csv":
@@ -118,7 +150,20 @@ class Service:
         raise CommandError("Unknown method for this backend milestone.", "NOT_FOUND")
 
     def settings(self):
-        return {**self.repo.settings(), 'has_key': False, 'has_proxy_credentials': self.runs.proxy_credential is not None}
+        return {**self.repo.settings(), 'has_key': self.runs.model_key is not None, 'has_proxy_credentials': self.runs.proxy_credential is not None}
+
+    def handle_llm(self, kind, payload, event):
+        token = payload if kind == 'llm_attempt' else payload[0]
+        if kind == 'llm_result':
+            self.llm.complete(token)
+        if token not in self.model_operations:
+            self.runs.handle_score(kind, payload, event)
+        elif kind == 'llm_result':
+            _, result, error = payload
+            if self.model_operations.pop(token).is_set():
+                error = {'code': 'CANCELLED', 'message': 'Model operation cancelled.', 'retryable': False}
+            event('operation.failed' if error else 'model.test.completed',
+                  {'operation_id': token, **({'error': error} if error else result)})
 
     def save_settings(self, params):
         self.repo.save_settings(params)
@@ -133,7 +178,7 @@ class Service:
 
 
 def serve(root: Path, source: BinaryIO, destination: BinaryIO, *, clock=now_ms, enable_dev=False,
-          cleanup_interval=60, attempt=None) -> None:
+          cleanup_interval=60, attempt=None, llm_options=None) -> None:
     # Only this receive loop writes SQLite or protocol output. The input reader and
     # CSV worker submit messages; neither shares the writer connection.
     inbox = queue.Queue(maxsize=64)
@@ -147,7 +192,7 @@ def serve(root: Path, source: BinaryIO, destination: BinaryIO, *, clock=now_ms, 
         finally:
             inbox.put(("eof", None))
     with closing(connect(root / "app.sqlite3")) as connection:
-        service = Service(connection, root, clock=clock, enable_dev=enable_dev, inbox=inbox, attempt=attempt)
+        service = Service(connection, root, clock=clock, enable_dev=enable_dev, inbox=inbox, attempt=attempt, llm_options=llm_options)
         service.cleanup.clear_tmp()
         service.cleanup.execute("automatic")
         seq = 0
@@ -162,14 +207,14 @@ def serve(root: Path, source: BinaryIO, destination: BinaryIO, *, clock=now_ms, 
         deadline = time.monotonic() + cleanup_interval
         ended = False
         try:
-            while not ended or service.operations or service.runs.active():
+            while not ended or service.operations or service.model_operations or service.runs.active():
                 timeout = max(0, deadline - time.monotonic())
                 try:
                     kind, payload = inbox.get(timeout=timeout)
                 except queue.Empty:
                     kind, payload = "tick", None
                 if time.monotonic() >= deadline:
-                    if not service.operations and not service.runs.active():
+                    if not service.operations and not service.model_operations and not service.runs.active():
                         try:
                             cleaned = service.cleanup.execute("automatic")
                             if cleaned["deleted_jobs"] or cleaned["deleted_runs"] or cleaned["deleted_files"] or cleaned["failed_files"]:
@@ -181,10 +226,15 @@ def serve(root: Path, source: BinaryIO, destination: BinaryIO, *, clock=now_ms, 
                     deadline = time.monotonic() + cleanup_interval
                 if kind == "eof":
                     ended = True
+                    for token in list(service.model_operations):
+                        service.llm.cancel(token)
                     active = service.runs.active()
                     if active:
                         service.runs.stop({'run_id': active['run_id']})
                         service.runs.advance(event)
+                    continue
+                if kind in ('llm_attempt', 'llm_result'):
+                    service.handle_llm(kind, payload, event)
                     continue
                 if kind in ('retrieval_attempt', 'retrieval_result'):
                     service.runs.handle(kind, payload, event)
@@ -217,7 +267,9 @@ def serve(root: Path, source: BinaryIO, destination: BinaryIO, *, clock=now_ms, 
                 if succeeded and (method.startswith(("applications.", "directions.", "queries."))
                                   or method in {"dev.import_synthetic", "cleanup.execute", "drafts.apply"}):
                     event("jobs.changed", {})
-                if succeeded and method in {"runs.start", "runs.resume", "runs.stop"}:
+                if succeeded and method in {"runs.start", "runs.resume", "runs.stop", "jobs.score"}:
+                    if method in {'jobs.score', 'runs.resume'}:
+                        event('jobs.changed', {})
                     service.runs.notifications(result['run_id'], event)
                     service.runs.advance(event)
         finally:

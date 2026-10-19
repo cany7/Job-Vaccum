@@ -23,6 +23,7 @@ export interface ApiError {
   code: string;
   message: string;
   retryable: boolean;
+  http_status?: number;
   field_errors?: Record<string, string>;
 }
 
@@ -30,7 +31,8 @@ export type ApiResult<T> = { ok: true; result: T } | { ok: false; error: ApiErro
 
 export interface AppStatus {
   active_run: import("./runs").ActiveRun | null;
-  operations: unknown[];
+  operations: ({ operation_id: string; kind: 'export' } |
+    { operation_id: string; kind: 'model_test'; status: 'running' | 'cancelling' })[];
   cleanup: { status: string };
   configuration_complete: boolean;
   storage: { schema_version: number; journal_mode: string };

@@ -4,6 +4,7 @@ export const PROTOCOL_VERSION = 1;
 export const MAX_LINE_BYTES = 1024 * 1024;
 export const businessMethods = {
   'jobs:list': 'jobs.list', 'jobs:detail': 'jobs.detail',
+  'jobs:score': 'jobs.score', 'model:test': 'model.test', 'operations:cancel': 'operations.cancel',
   'settings:get': 'settings.get', 'settings:save': 'settings.save',
   'directions:save': 'directions.save', 'directions:delete': 'directions.delete', 'directions:reorder': 'directions.reorder',
   'drafts:get': 'drafts.get', 'drafts:save': 'drafts.save', 'drafts:apply': 'drafts.apply',
