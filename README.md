@@ -22,4 +22,4 @@ npm ci
 npm run dev
 ```
 
-See the module READMEs for test and packaging commands. Automated tests use synthetic data by default and do not require website accounts or paid model services. Dependencies are pinned in the committed lockfiles. Local development guidelines and design documents are maintained separately and are not distributed with the repository.
+See the module READMEs for test and packaging commands. Automated tests use synthetic data by default and do not require website accounts or paid model services. Dependencies are pinned in the committed lockfiles. Development guidelines are in [AGENTS.md](AGENTS.md), and design documents and progress are in [dev-docs/README.md](dev-docs/README.md). Local design skills under `.agents/` must be prepared separately.
