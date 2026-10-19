@@ -38,7 +38,7 @@ test('model key encrypts, privately injects, reloads and deletes without disclos
       assert.equal(JSON.stringify(result).includes('secret'), false);
     }
     const key = 'synthetic-only-for-test';
-    assert.deepEqual((await store.set({ key })).result, { has_key: true });
+    assert.deepEqual((await store.set({ key: ` \t${key}\t ` })).result, { has_key: true });
     const encrypted = await readFile(path.join(directory, 'model-key.enc'));
     assert.equal(encrypted.includes(Buffer.from(key)), false);
     const reloaded = modelCredentials(backend, directory);
@@ -47,11 +47,13 @@ test('model key encrypts, privately injects, reloads and deletes without disclos
     available = false;
     assert.equal((await reloaded.set({ key: 'replacement' })).error.code, 'AUTH_ERROR');
     assert.equal((await reloaded.inject()).error.code, 'AUTH_ERROR');
+    assert.deepEqual(calls.at(-1).params, { model_key: null });
     assert.deepEqual(await readFile(path.join(directory, 'model-key.enc')), encrypted);
     available = true;
     broken = true;
     const failed = await reloaded.inject();
     assert.equal(failed.error.code, 'AUTH_ERROR');
+    assert.deepEqual(calls.at(-1).params, { model_key: null });
     assert.equal(JSON.stringify(failed).includes('private diagnostic'), false);
     broken = false;
     assert.equal((await store.delete()).result.has_key, false);

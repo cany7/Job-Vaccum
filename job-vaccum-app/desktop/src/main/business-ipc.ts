@@ -2,7 +2,7 @@ import { app, dialog, ipcMain, shell, type BrowserWindow, type IpcMainInvokeEven
 import { lstat, realpath } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import type { ApiResult, ServiceEvent } from '../shared/api';
+import type { ApiError, ApiResult, ServiceEvent } from '../shared/api';
 import { businessMethods } from '../shared/protocol';
 import type { Backend } from './backend';
 import { proxyCredentials } from './proxy-credentials';
@@ -56,11 +56,22 @@ export function registerBusinessIpc(backend: Backend, getWindow: () => BrowserWi
         const injected = await credentials.inject();
         if (!injected.ok) return injected;
       }
+      let modelKeyError: ApiError | undefined;
       if (['runs.start', 'runs.resume', 'runs.preview', 'settings.get', 'jobs.score', 'model.test'].includes(method)) {
         const injected = await modelKey.inject();
-        if (!injected.ok) return injected;
+        if (!injected.ok) {
+          if (injected.error.code !== 'AUTH_ERROR' || ['jobs.score', 'model.test'].includes(method)) return injected;
+          modelKeyError = injected.error;
+        }
       }
-      return backend.request(method, params);
+      const result = await backend.request<Record<string, unknown>>(method, params);
+      if (modelKeyError && method === 'settings.get' && result.ok) {
+        return { ok: true, result: { ...result.result, model_key_error: modelKeyError } };
+      }
+      // The service decides from the current settings or original resume
+      // snapshot whether a key is needed; unrelated validation still wins.
+      if (modelKeyError && !result.ok && result.error.code === 'AUTH_ERROR') return { ok: false, error: modelKeyError };
+      return result;
     });
   }
   ipcMain.handle('export:choose-csv-destination', async (event) => {

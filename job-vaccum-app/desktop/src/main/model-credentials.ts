@@ -26,7 +26,17 @@ export function modelCredentials(backend: Backend, dataDir: string) {
     return result.ok ? { ok: true, result: { has_key: result.result.has_key } } : result;
   };
   return {
-    inject: () => ordered(async () => { try { return await inject(); } catch { return unavailable(); } }),
+    inject: () => ordered(async () => {
+      try {
+        const result = await inject();
+        if (result.ok || result.error.code !== 'AUTH_ERROR') return result;
+      } catch { /* Report a controlled storage error after clearing stale memory. */ }
+      try {
+        const cleared = await backend.request('internal.credentials', { model_key: null });
+        if (!cleared.ok) return cleared;
+      } catch { return unavailable(); }
+      return unavailable();
+    }),
     set: (params: { key: string }) => ordered(async () => {
       if (!params || Object.keys(params).length !== 1 || typeof params.key !== 'string'
         || !params.key.trim() || /[\r\n]/.test(params.key)) {
@@ -34,7 +44,7 @@ export function modelCredentials(backend: Backend, dataDir: string) {
       }
       try {
         if (!safeStorage.isEncryptionAvailable()) return unavailable();
-        await writeFile(file, safeStorage.encryptString(params.key), { mode: 0o600 });
+        await writeFile(file, safeStorage.encryptString(params.key.trim()), { mode: 0o600 });
         return await inject();
       } catch { return unavailable(); }
     }),

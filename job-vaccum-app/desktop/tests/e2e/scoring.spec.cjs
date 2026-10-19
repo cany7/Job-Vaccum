@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const http = require('node:http');
 const { once } = require('node:events');
-const { readFile } = require('node:fs/promises');
+const { readFile, writeFile } = require('node:fs/promises');
 const path = require('node:path');
 const { packaged, directory, seed, launch, quit, jobId } = require('./support.cjs');
 
@@ -33,7 +33,7 @@ test('M3 named model/key/score bridge uses real backend and local HTTP', async (
       window.m3Events = [];
       window.jobVaccum.onServiceEvent(event => window.m3Events.push(event));
     });
-    const saved = await page.evaluate(() => window.jobVaccum.setModelKey({ key: 'synthetic-only-for-test' }));
+    const saved = await page.evaluate(() => window.jobVaccum.setModelKey({ key: ' \tsynthetic-only-for-test\t ' }));
     expect(saved).toEqual({ ok: true, result: { has_key: true } });
     const encrypted = await readFile(path.join(dataDir, 'model-key.enc'));
     expect(encrypted.includes(Buffer.from('synthetic-only-for-test'))).toBe(false);
@@ -48,6 +48,23 @@ test('M3 named model/key/score bridge uses real backend and local HTTP', async (
     expect(detail.result.score_reason).toBe('Synthetic zero.');
     expect(calls).toHaveLength(2);
     expect(calls.every(c => c.path === '/custom/v1/chat/completions' && c.headers.authorization === 'Bearer synthetic-only-for-test' && c.body.temperature === 0)).toBe(true);
+    const corrupt = Buffer.from('synthetic-invalid-encrypted-data');
+    await writeFile(path.join(dataDir, 'model-key.enc'), corrupt);
+    const readableSettings = await page.evaluate(() => window.jobVaccum.getSettings());
+    expect(readableSettings.ok).toBe(true);
+    expect(readableSettings.result.has_key).toBe(false);
+    expect(readableSettings.result.model_key_error.code).toBe('AUTH_ERROR');
+    expect(readableSettings.result.rubric).toBe('Synthetic rubric.');
+    await page.evaluate(() => window.jobVaccum.saveSettings({
+      cities: [{ location: 'Chicago', distance_miles: 25, enabled: true }], platforms: ['linkedin'],
+    }));
+    expect((await page.evaluate(() => window.jobVaccum.previewRun())).ok).toBe(true);
+    await page.evaluate(() => window.jobVaccum.saveSettings({ auto_score_enabled: true }));
+    expect((await page.evaluate(() => window.jobVaccum.previewRun())).error.code).toBe('AUTH_ERROR');
+    expect((await page.evaluate(() => window.jobVaccum.testModel())).error.code).toBe('AUTH_ERROR');
+    expect((await page.evaluate(id => window.jobVaccum.scoreJobs({ job_ids: [id] }), jobId(0))).error.code).toBe('AUTH_ERROR');
+    expect(await readFile(path.join(dataDir, 'model-key.enc'))).toEqual(corrupt);
+    expect(calls).toHaveLength(2);
     expect(await page.evaluate(() => window.jobVaccum.deleteModelKey())).toEqual({ ok: true, result: { has_key: false } });
     expect((await page.evaluate(() => window.jobVaccum.getSettings())).result.has_key).toBe(false);
     expect(await page.evaluate(() => JSON.stringify(window.m3Events))).not.toContain('synthetic-only-for-test');

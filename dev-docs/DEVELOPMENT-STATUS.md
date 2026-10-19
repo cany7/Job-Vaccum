@@ -1,6 +1,6 @@
 # 开发状态
 
-最新状态：2026-10-19 M3 后端、协议、main/preload 由 Codex 完成并经 PR #7 合入 main（renderer 未改）；M2 第 2 步（renderer 界面）由 Claude 在 claude/dev-env 完成，已同步该主线并按授权提 PR（见文末「M2 第 2 步」）。M2 真实平台极小范围抓取与 M2 安装包验收仍未做；M3 Custom/Score/rubric 界面未开始。两个活动工作区分别使用 codex/dev、claude/dev-env，GitHub 必需检查和 auto-merge 已启用。
+最新状态：2026-10-19 M3 后端审阅四项修复已完成本地验证，按用户要求暂不 push，详见下节。开工先 fetch 并 merge 最新 origin/main db6b470（M2 renderer 已经 PR #8 合入），本轮仍未改 renderer。M3 后端首轮经 PR #7 合入；M3 Custom/Score/rubric 界面、M2 真实平台验证和新安装包验收仍未完成。
 
 ## 当前交接摘要（2026-10-19）
 
@@ -8,11 +8,35 @@
 
 - M0、M1 已完成；M2 第 1 步（检索后端、运行协议、桌面桥接）已通过 PR #2 合入。M3 后端现已实现实际评分与四协议（PR #7）。M2 第 2 步 renderer（Runs 页、手动配置、批次筛选与失效提示）已完成，Runs 页**布局待确认**；M3 Custom/Score/rubric 界面、M2 真实平台验证与安装包验收及后续阶段未完成。
 - M3 后端轮本地验证为 **172 项后端、13 项 Node 测试及类型检查/构建、19 项完整开发版 E2E**，另 M3 桥接 E2E **1 passed**；M2 第 2 步合并该主线后的验证见文末。历史 PR 的 CI/测试只描述当时版本；远端交付按必需 CI 流程确认。
+- 最新审阅修复本地验证：**177 项后端、15 项 Node 测试及类型检查/构建、4 项相关桌面 E2E**（Runs、设置、M3 桥接）。没有本轮完整 E2E/安装包/云端 CI 结果；本地提交暂不推送。
 - M2 版本尚未重新打包或验收安装副本；之前 M0/M1 安装包记录只证明当时版本。真实网站、真实代理、付费模型、第二台物理 Mac、正式签名与公证仍未验证。既有 E2E request failures / Markdown 场景曾间歇性超时，复验通过，但根因未确认修复。
 - 当前仅两个活动目录：`job-vaccum-gui` 使用 `codex/dev`，`job-vaccum-gui-claude` 使用 `claude/dev-env`；main 无目录签出。默认本地提交，获准推送交付后创建/更新 PR 并开启 auto-merge；必需 CI 通过后合并，不绕过保护。
 - Python/Node 以项目版本文件为准，使用 uv 独立环境与 npm lockfile；不要求 pyenv，也不限制 uv 下载解释器。当前操作命令见下方「启动、测试和构建命令」。
 
 以下为各次交付的历史记录，未按时间完全排序。历史段落中的“当前”“未推送”“未合并”“未完成”、旧分支/目录及旧环境仅描述当时状态；后续已完成事项以上方摘要及相应补验/合并记录为准，保留原始测试结果，不把历史通过写成本轮重验。
+
+## M3 审阅修复：清理续跑、取消派发与模型凭据（2026-10-19，本地交付）
+
+用户先要求逐项核查审阅发现，合成复现确认后授权修复四项，并明确「先不要 push」。工作区保持 codex/dev；从干净的 25fe8e6 执行 `git fetch origin`、`git merge origin/main`，快进同步 M2 renderer 的 PR #8（db6b470），保留该 Agent 的全部设计与记录。本轮仅后端、main/shared 类型、测试和开发文档修改，renderer/preload/依赖/lockfile/JobSpy SHA/数据库迁移均未改。
+
+- 清理续跑：派发前岗位不存在时，该评分任务记 failed/NOT_FOUND，保留任务 ID 和历史尝试数，不发 LLM、不恢复已清理岗位；循环处理其他待评分任务，正常更新运行统计与终态。测试用真实接收循环和自动留存清理，覆盖 stopped/interrupted × 全部删除/混合存活四种组合，确认 surviving 岗位继续评分、全部缺失时 failed、混合时 partial、后续 Ping 仍响应。
+- 取消派发：worker 从阻塞的请求开始通知返回后、真正 transport 前再次检查 cancel；未发请求返回 CANCELLED。worker 结果附实际调用数，由串行写库循环结算最终 attempt_count，避免已排队的开始通知虚增次数；保留此前累计数。已有在途成功/重试/续跑回归继续通过，不改变有限重试、RPM 或 Retry-After 策略。
+- 凭据读取失败：main 保留加密文件、私有清除 service 当前模型 Key；不清除在途运行已捕获的凭据。getSettings 返回非敏感配置、has_key=false 及可选 model_key_error（受控 AUTH_ERROR）。无需模型的 preview/start/resume 继续可用；由 service 根据正式配置或原 resume 快照判断是否需要 Key，需要时返回 AUTH_ERROR，其他输入错误仍按原校验返回。jobs.score/model.test 在解密失败时保持拒绝。没有明文回退或自动恢复凭据文件。
+- Key 输入：合法单行 Key 去首尾空白后再加密保存；空白和含 CR/LF 的输入仍拒绝。Node 和真实 Electron→Python→本地 HTTP 测试均检查实际使用的 Key 无首尾空格/制表符。
+
+CONTRACTS 与 shared.Settings 同步可选 model_key_error；ACCEPTANCE 增加 A15/A16/R14/R15。M3 设置界面尚未实现，本轮只提供可供前端展示的错误字段，不宣称 renderer 已显示新提示。未扩展截图中的可暂缓重构、事件优化、Retry-After 上限或调度公平性建议。
+
+环境：macOS 27.0.1（26A434）arm64，Python 3.13.12 / SQLite 3.54.0，uv 0.13.1，Node 26.12.0 / npm 11.20.0，既定 Electron 44.9.0；复用既有独立环境，未升级依赖。
+
+| 实际命令 / 目录 | 结果 |
+| --- | --- |
+| backend `uv run --locked pytest -q tests/test_scoring.py tests/test_llm.py` | 60 passed，17.37 秒 |
+| backend `uv run --locked pytest -q` | 177 passed，18.64 秒 |
+| desktop `npm test` | 类型检查、生产构建、15 Node tests passed，Node 测试 12.12 秒；含加密不可用/解密失败、原快照判定、无秘密回显和 Key trim |
+| desktop `npm run build && npx --no-install playwright test tests/e2e/scoring.spec.cjs tests/e2e/runs.spec.cjs --trace retain-on-failure` | 4 passed，20.0 秒；M2 Runs/设置兼容与真实 M3 HTTP 链路。故意损坏测试目录的加密文件后，配置与 auto_score=false 的预览仍可用；需模型时 AUTH_ERROR，原文件保留，无额外模型请求 |
+| 根目录 `git diff --check`；renderer diff | 通过；renderer 无本轮修改 |
+
+测试全用合成数据、fake LLM 或 loopback HTTP；没有真实岗位抓取、代理、付费模型、私人凭据或新安装包验证。按用户要求只本地提交，未 push、未创建新 PR、未触发本轮 GitHub CI；此前远端推送授权不适用于这次修复。
 
 ## M3 后端、协议与 main/preload（2026-10-19）
 

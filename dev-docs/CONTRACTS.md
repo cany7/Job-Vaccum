@@ -217,7 +217,9 @@ M2 事件细化：`run.stats` 发送 run_id、retrieval、scoring 和四个全�
 
 `model.test.completed` 是 M3 新增的独立成功事件，避免现有 renderer 把模型测试当 CSV 导出完成（原 operation.completed 仍返回 row_count）。所有事件使用已有统一封装与会话递增 seq。接受响应先于对应事件。连接测试的输出文本不回传、不保存；模型输出只有有效非空最终文本才算连接成功。测试失败不修改设置、rubric 或草稿。
 
-settings.get/save 的 has_key 改为实际内存凭据状态。`internal.credentials` 私有消息接受 `{proxy_url?:string|null,model_key?:string|null}`，省略字段保留、null 只删除该凭据；至少一个字段。main 在读取 settings、preview/start/resume、jobs.score、model.test 前从 App 目录 `model-key.enc` 解密注入；保存/删除时立即更新内存。文件使用 safeStorage、0600 权限；加密/解密不可用返回 AUTH_ERROR，不明文保存。renderer 不能调用 internal.credentials。运行开始时捕获 Key，期间修改仅影响下次 start/resume/test；resume 可修正 Key，仍沿用原模型和 rubric 快照。
+settings.get/save 的 has_key 改为实际内存凭据状态。`internal.credentials` 私有消息接受 `{proxy_url?:string|null,model_key?:string|null}`，省略字段保留、null 只删除该凭据；至少一个字段。main 在读取 settings、preview/start/resume、jobs.score、model.test 前从 App 目录 `model-key.enc` 解密注入；保存/删除时立即更新内存。文件使用 safeStorage、0600 权限；加密/解密不可用明确报告 AUTH_ERROR，不明文保存。renderer 不能调用 internal.credentials。运行开始时捕获 Key，期间修改仅影响下次 start/resume/test；resume 可修正 Key，仍沿用原模型和 rubric 快照。
+
+M3 审阅修正：`setModelKey` 拒绝空白或含 CR/LF 的输入，合法单行 Key 在加密保存前去除首尾空白。读取/解密失败时保留原加密文件、通过私有消息清除后端当前模型 Key，不清除已经启动运行捕获的 Key。`getSettings()` 仍成功返回非敏感配置，`has_key=false`，另含可选 `model_key_error:ApiError`（由 main 附加，消息受控且无秘密），供设置页展示 Keychain 错误和重设/删除 Key 的处理办法；读成功或删除后省略该字段。该错误不阻断无需模型的 preview/start/resume；是否需要 Key 由 service 使用正式配置或原运行快照判断。需要 Key 的评分返回 AUTH_ERROR，模型/rubric 等非凭据配置缺失仍为 VALIDATION_ERROR。`jobs.score`、`model.test` 在凭据不可读时保持受控拒绝，不绕过加密、不静默吞错。
 
 ### 手动评分与运行
 
@@ -226,6 +228,8 @@ settings.get/save 的 has_key 改为实际内存凭据状态。`internal.credent
 - 新任务与岗位 pending 原子登记，旧成功分数保留；实际请求开始转 running，每次请求（含重试）增加 attempt_count。成功事务只更新 jobs 的 score/reason/scored_at/score_model/state/error 和对应任务/统计；失败只写 failed、last_score_error（可读脱敏文本）和任务 error，不改旧成功分与时间、正文或清单。0 分是 succeeded。
 - 新批次入库后立即排队评分，与后续抓取重叠；本轮每 job 一个任务，输入仅 title/company/description 加运行 rubric。不同 job 即使输入完全相同也独立请求，不缓存、不共享结果；后续来源/方向命中不重评。抓取结束后仍等待评分，提交后发送 jobs.changed 和 run 事件。
 - stop 立即停止后续派发与重试，可打断 RPM/退避；已发请求继续占用全局并发直至结束，成功评分照常保存，再转 stopped。未开始任务 cancelled，未完成岗位保留 pending 供续跑。resume 跳过 succeeded，其他任务获得新的三次尝试预算；启动将旧 running 任务转 pending，保留旧成功分。更完整的崩溃/退出故障注入仍属 M4。
+- 自动清理可能删除 stopped/interrupted 运行中的旧岗位，但保留较新的运行和任务。续跑派发时，岗位已不存在的任务记 failed，error.code=NOT_FOUND、retryable=false，不发模型请求、不增加 attempt_count、不恢复岗位；继续其他任务并按实际结果结束运行。缺失任务仍保留在运行详情，全部岗位已删时运行可正常结束为 failed，混合存活岗位时为 partial。
+- worker 在通知接收循环等阻塞返回后、发送 transport 前再次检查取消信号；未发请求以 CANCELLED 结算，任务最终 attempt_count 只计实际 transport 调用，保留此前累计尝试数。已经发出的请求仍按原停止语义保存成功结果。
 
 ### HTTP 与限速
 

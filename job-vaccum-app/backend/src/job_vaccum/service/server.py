@@ -159,7 +159,7 @@ class Service:
         if token not in self.model_operations:
             self.runs.handle_score(kind, payload, event)
         elif kind == 'llm_result':
-            _, result, error = payload
+            _, result, error, _attempts = payload
             if self.model_operations.pop(token).is_set():
                 error = {'code': 'CANCELLED', 'message': 'Model operation cancelled.', 'retryable': False}
             event('operation.failed' if error else 'model.test.completed',
