@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      full_e2e:
+        description: Run the full desktop E2E suite
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: macos-15
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: job-vaccum-app/backend
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          version: '0.13.1'
+          enable-cache: false
+      - name: Install locked Python environment
+        run: uv sync --locked --python "$(cat ../.python-version)"
+      - name: Run backend tests
+        run: uv run --locked pytest -q --junitxml=../../tmp/ci/backend.xml
+      - name: Upload backend test report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: backend-results
+          path: tmp/ci/backend.xml
+          if-no-files-found: ignore
+          retention-days: 7
+
+  frontend:
+    name: Frontend
+    runs-on: macos-15
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: job-vaccum-app/desktop
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: job-vaccum-app/.node-version
+          package-manager-cache: false
+      - run: npm ci
+      - name: Typecheck, build and run Node tests
+        run: npm test
+
+  e2e:
+    name: Desktop E2E
+    runs-on: macos-15
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: job-vaccum-app/desktop
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: job-vaccum-app/.node-version
+          package-manager-cache: false
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          version: '0.13.1'
+          enable-cache: false
+      - name: Install locked Python environment
+        working-directory: job-vaccum-app/backend
+        run: uv sync --locked --python "$(cat ../.python-version)"
+      - run: npm ci
+      - name: Run desktop E2E
+        env:
+          FULL_E2E: ${{ inputs.full_e2e || false }}
+          PLAYWRIGHT_JUNIT_OUTPUT_FILE: ../../tmp/ci/e2e.xml
+        run: |
+          if [ "$FULL_E2E" = "true" ]; then
+            npm run test:e2e -- --reporter=list,junit
+          else
+            npm run test:e2e:smoke -- --reporter=list,junit
+          fi
+      - name: Upload E2E report and screenshots
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: desktop-e2e-results
+          path: |
+            tmp/ci/e2e.xml
+            tmp/job-vaccum-app/**/*.png
+            tmp/job-vaccum-app/e2e-results/**
+          if-no-files-found: ignore
+          retention-days: 7

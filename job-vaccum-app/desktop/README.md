@@ -74,6 +74,12 @@ npm test
 npm run test:e2e
 ```
 
+`npm run test:e2e:smoke` runs the five existing core integration tests tagged
+`@smoke`, including real backend startup, Jobs-to-Shortlist interaction,
+persistence/export, M2 queries and backend-crash handling. The full suite above
+still includes these tests. GitHub PR checks use this smaller set; see
+[CI setup and automatic merging](../../.github/README.md).
+
 The 9 Node tests use a synthetic process for fragmented Unicode/multiple
 responses, request correlation, incompatible/missing ready, malformed/oversized
 output, startup/exit failures, late responses, and shutdown.
