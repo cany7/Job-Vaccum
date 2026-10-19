@@ -10,7 +10,7 @@ From the repository root:
 
 ```sh
 cd job-vaccum-app/backend
-uv sync --locked --python "$(pyenv root)/versions/3.13.12/bin/python"
+uv sync --locked
 uv run --locked python -m job_vaccum --data-dir "$(git rev-parse --show-toplevel)/tmp/job-vaccum-app"
 ```
 
