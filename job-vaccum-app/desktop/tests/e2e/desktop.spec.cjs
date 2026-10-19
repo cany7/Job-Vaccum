@@ -8,18 +8,21 @@ const tempRoot = path.resolve(root, '../../tmp/job-vaccum-app');
 const packaged = process.env.JV_EXECUTABLE;
 
 async function launch(dataDir) {
-  return electron.launch({
+  const application = await electron.launch({
     executablePath: packaged || require('electron'),
     args: [...(packaged ? [] : [root]), `--data-dir=${dataDir}`],
     cwd: '/', env: { ...process.env, PATH: '/usr/bin:/bin' },
   });
+  // Keep the child reference after Quit disposes Playwright's process channel.
+  application.ownedProcess = application.process();
+  return application;
 }
 async function directory() {
   await mkdir(tempRoot, { recursive: true });
   return mkdtemp(path.join(tempRoot, 'M1 app with spaces '));
 }
 function backendPid(application) {
-  const parent = application.process().pid;
+  const parent = application.ownedProcess.pid;
   const rows = execFileSync('/bin/ps', ['-axo', 'pid=,ppid=,command='], { encoding: 'utf8' }).split('\n');
   const row = rows.find(row => {
     const match = row.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/);
@@ -29,7 +32,7 @@ function backendPid(application) {
   return Number(row.trim().split(/\s+/)[0]);
 }
 async function quit(application) {
-  const exited = once(application.process(), 'exit');
+  const exited = once(application.ownedProcess, 'exit');
   await application.evaluate(({ app }) => { app.quit(); });
   await exited;
 }
@@ -107,7 +110,7 @@ test('shell, About with real backend, close/reopen, single instance and Quit', a
     expect(errors).toEqual([]);
     await quit(application);
     expect(() => process.kill(pid, 0)).toThrow();
-  } finally { if (application.process().exitCode === null) await application.close(); }
+  } finally { if (application.ownedProcess.exitCode === null) await application.close(); }
 });
 
 test('sidebar collapse persists, narrow windows auto-collapse and restore', async () => {
@@ -161,7 +164,7 @@ test('sidebar collapse persists, narrow windows auto-collapse and restore', asyn
     page = await application.firstWindow();
     await expect(page.getByRole('status')).toHaveText('Backend ready');
     expect(await sidebarWidth(page)).toBe(200);
-  } finally { if (application.process().exitCode === null) await application.close(); }
+  } finally { if (application.ownedProcess.exitCode === null) await application.close(); }
 });
 
 test('themes and modes switch immediately, stay independent and persist', async () => {
@@ -219,7 +222,7 @@ test('themes and modes switch immediately, stay independent and persist', async 
     await expect(page.getByRole('radio', { name: 'Dark', exact: true })).toBeChecked();
     await expect(page.getByRole('radiogroup', { name: 'Light theme' }).getByRole('radio', { name: 'Pine' })).toBeChecked();
     await expect(page.getByRole('radiogroup', { name: 'Dark theme' }).getByRole('radio', { name: 'Ink' })).toBeChecked();
-  } finally { if (application.process().exitCode === null) await application.close(); }
+  } finally { if (application.ownedProcess.exitCode === null) await application.close(); }
 });
 
 test('640 wide window, keyboard focus and reduced motion', async () => {
@@ -290,10 +293,10 @@ test('startup failure is a whole-window page whose Quit exits the App', async ()
     });
     expect(order).toBe(true);
     await page.screenshot({ path: path.join(dataDir, 'startup-error.png') });
-    const exited = once(application.process(), 'exit');
+    const exited = once(application.ownedProcess, 'exit');
     await quitButton.click();
     await exited;
-  } finally { if (application.process().exitCode === null) await application.close(); }
+  } finally { if (application.ownedProcess.exitCode === null) await application.close(); }
 });
 
 test('backend crash blocks the shell and only offers Quit', async () => {
@@ -313,10 +316,10 @@ test('backend crash blocks the shell and only offers Quit', async () => {
     await page.keyboard.press('Tab');
     await expect(page.getByRole('button', { name: 'Quit Job Vaccum' })).toBeFocused();
     await page.screenshot({ path: path.join(dataDir, 'backend-stopped.png') });
-    const exited = once(application.process(), 'exit');
+    const exited = once(application.ownedProcess, 'exit');
     await page.getByRole('button', { name: 'Quit Job Vaccum' }).click();
     await exited;
-  } finally { if (application.process().exitCode === null) await application.close(); }
+  } finally { if (application.ownedProcess.exitCode === null) await application.close(); }
 });
 
 test('controlled starting, loading and request error states remain usable', async () => {
@@ -435,7 +438,7 @@ test('M1 named bridge persists business data and exports through a main-owned de
     expect((await page.evaluate(() => window.jobVaccum.chooseCsvDestination())).result).toBe(null);
     await quit(application);
   } finally {
-    if (application.process().exitCode === null) await application.close();
+    if (application.ownedProcess.exitCode === null) await application.close();
     await rm(csvPath, { force: true });
   }
   const restarted = await launch(dataDir);
