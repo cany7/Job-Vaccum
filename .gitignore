@@ -15,6 +15,7 @@ release/
 !.env.example
 tmp/
 
-# Local development instructions and design documents
+# Local agent skills, development instructions and design documents
+/.agents/
 /AGENTS.md
 /dev-docs/
