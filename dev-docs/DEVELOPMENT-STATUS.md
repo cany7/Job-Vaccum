@@ -3,6 +3,10 @@
 最新状态：2026-10-20 Jobs/Shortlist 评分与批次界面修正已实现并本地提交于 codex/dev，未推送（见下节）。M2 Runs 修正已通过 PR #13 合入 main（3a6816f）；运行计划本体仍属 M7。真实模型、安装包未补验，安装版分页重试遗留失败仍暂缓。
 
 
+## Jobs/Shortlist 与 Runs 修正交付前验证（2026-10-20，Codex）
+
+用户已授权 push、PR；按 AGENTS 流程开启必需检查通过后的自动合并。推送前 `git fetch origin && git merge origin/main` 已确认无需额外合并；desktop `npm test`（类型检查、构建、15 Node tests）及 `npx --no-install playwright test --grep @smoke`（6 passed，7.5 秒）通过，`git diff --check` 通过。交付包含 6d33c92、15b9c8f 的最终修改；前述“未推送”记录为当时状态，远端合并及主线 CI 结果以本次 PR/Actions 为准。
+
 ## Runs 与评分标记试用反馈修正（2026-10-20，Codex）
 
 用户试用后明确要求三处调整，修改保留在 codex/dev；中断后确认工作区改动完整，再继续验证。沿用前次记录的本机环境及既有两个设计 skill。
