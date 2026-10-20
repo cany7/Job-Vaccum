@@ -259,6 +259,17 @@ function RunDetailView({ summary, version }: { summary: RunSummary; version: num
         </Total>
       </dl>
 
+      <section aria-labelledby="filter-reasons-title" className="run-section">
+        <h3 id="filter-reasons-title">Filtered by rule</h3>
+        {Object.keys(stats.filter_reasons ?? {}).length ? (
+          <dl className="run-totals">
+            {Object.entries(stats.filter_reasons ?? {}).map(([reason, count]) => (
+              <Total key={reason} label={filterReasonLabels[reason] ?? reason}>{count.toLocaleString("en-US")}</Total>
+            ))}
+          </dl>
+        ) : <p className="muted">No jobs filtered out.</p>}
+      </section>
+
       <section aria-labelledby="by-search-title" className="run-section">
         <h3 id="by-search-title">By search</h3>
         {stats.directions.length ? (

@@ -36,13 +36,18 @@ class LlmPool:
     def submit(self, token, model, key, system, prompt, parser, cancel):
         self.cancellations[token] = cancel
         def work():
+            attempts = 0
             result, error = None, {'code': 'CANCELLED', 'message': 'Model operation cancelled.', 'retryable': False}
             for attempt in range(self.max_attempts):
                 if not self.gate.enter(cancel):
                     error = {'code': 'CANCELLED', 'message': 'Model operation cancelled.', 'retryable': False}
                     break
                 self.inbox.put(('llm_attempt', token))
+                if cancel.is_set():
+                    error = {'code': 'CANCELLED', 'message': 'Model operation cancelled.', 'retryable': False}
+                    break
                 try:
+                    attempts += 1
                     result = parser(self.transport(model, key, system, prompt))
                     error = None
                     break
@@ -56,7 +61,7 @@ class LlmPool:
                 except Exception:
                     error = {'code': 'INTERNAL_ERROR', 'message': 'Model request could not be completed.', 'retryable': False}
                     break
-            self.inbox.put(('llm_result', (token, result, error)))
+            self.inbox.put(('llm_result', (token, result, error, attempts)))
         self.futures[token] = self.executor.submit(work)
 
     def cancel(self, token):
@@ -68,7 +73,7 @@ class LlmPool:
             # cancel() runs on the receiver thread. Publish asynchronously, as a
             # worker does, so a full bounded inbox cannot block its own consumer.
             result = ('llm_result', (token, None,
-                {'code': 'CANCELLED', 'message': 'Model operation cancelled.', 'retryable': False}))
+                {'code': 'CANCELLED', 'message': 'Model operation cancelled.', 'retryable': False}, 0))
             threading.Thread(target=self.inbox.put, args=(result,), name='llm-cancel', daemon=True).start()
 
     def complete(self, token):

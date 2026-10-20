@@ -20,7 +20,8 @@ export interface FilterSpec {
 }
 export interface Query { id: string; direction_id: string; expression: string; enabled: boolean }
 export interface Direction { id: string; name: string; enabled: boolean; sort_order: number; queries: Query[] }
-export interface Settings extends PipelineSettings { directions: Direction[]; has_key: boolean; has_proxy_credentials: boolean }
+export interface Settings extends PipelineSettings { directions: Direction[]; has_key: boolean; has_proxy_credentials: boolean;
+  model_key_error?: ApiError }
 export interface Application { status: ApplicationStatus; notes: string; added_at: number; updated_at: number }
 export interface ApplicationRecord extends Application { job_id: string }
 export interface RestoreItem { job_id: string; status: ApplicationStatus; updated_at: number; notes?: string; added_at?: number }

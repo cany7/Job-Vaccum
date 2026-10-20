@@ -281,3 +281,76 @@ def test_real_receive_loop_response_before_score_events(tmp_path):
         incoming.put(b'')
         thread.join(5)
     assert not thread.is_alive() and not failures
+
+
+@pytest.mark.parametrize('stopped', [True, False], ids=['stopped', 'interrupted'])
+@pytest.mark.parametrize('keep_one', [False, True], ids=['all-deleted', 'mixed'])
+def test_resume_after_retention_keeps_receiver_alive_and_reports_missing_jobs(service, tmp_path, stopped, keep_one):
+    s = service
+    import_synthetic(s.repo, {'count': 3})
+    ids = [j['id'] for j in s.repo.list_jobs({})['items']]
+    with s.repo.db:
+        s.repo.db.execute('UPDATE jobs SET first_seen_at=?', (NOW - 15 * 86_400_000,))
+    if keep_one:
+        s.repo.add({'job_id': ids[0]})
+    s.dispatch('settings.save', {'retention_days': 14})
+    run = s.dispatch('jobs.score', {'filter': {}})['run_id']
+    task_ids = {t['id'] for t in s.runs.detail({'run_id': run})['tasks']}
+    if stopped:
+        s.dispatch('runs.stop', {'run_id': run})
+        s.runs.advance(lambda *_: None)
+    # A fresh receiver performs startup retention and interrupts the other case.
+    s.runs.close()
+    incoming, messages = queue.Queue(), []
+    incoming.put(request('key', 'internal.credentials', {'model_key': 'synthetic-key'}))
+    incoming.put(request('resume', 'runs.resume', {'run_id': run}))
+    class Input:
+        def readline(self, _): return incoming.get(timeout=4)
+    class Output:
+        def write(self, data):
+            message = json.loads(data)
+            messages.append(message)
+            if message.get('name') == 'run.updated' and message['data']['status'] in ('partial', 'failed'):
+                incoming.put(request('ping', 'app.ping', {'message': 'still alive'}))
+            if message.get('id') == 'ping': incoming.put(b'')
+        def flush(self): pass
+    fake = FakeLlm()
+    try:
+        serve(tmp_path, Input(), Output(), clock=lambda: NOW, llm_options={'transport': fake, 'rpm': 600000})
+    finally:
+        incoming.put(b'')
+    responses = {m['id']: m for m in messages if m['type'] == 'response'}
+    assert responses['resume']['ok'] and responses['ping']['result']['message'] == 'still alive'
+    result = s.runs.detail({'run_id': run})
+    assert result['status'] == ('partial' if keep_one else 'failed')
+    assert {t['id'] for t in result['tasks']} == task_ids
+    missing = [t for t in result['tasks'] if t['status'] == 'failed']
+    assert len(missing) == 3 - int(keep_one)
+    assert all(t['error']['code'] == 'NOT_FOUND' and t['attempt_count'] == 0 for t in missing)
+    assert result['stats']['scoring']['succeeded'] == len(fake.calls) == int(keep_one)
+    assert s.repo.list_jobs({})['total'] == int(keep_one)
+
+
+def test_cancel_while_score_start_notification_is_blocked_does_not_send_or_count(service):
+    s = service
+    import_synthetic(s.repo, {'count': 1})
+    class BlockedInbox(queue.Queue):
+        def __init__(self):
+            super().__init__(maxsize=1)
+            self.start_blocked = threading.Event()
+        def put(self, value, *args, **kwargs):
+            if value[0] == 'llm_attempt': self.start_blocked.set()
+            return super().put(value, *args, **kwargs)
+    inbox = BlockedInbox()
+    s.inbox = s.runs.inbox = s.llm.inbox = inbox
+    inbox.put(('occupied', None))
+    run = s.dispatch('jobs.score', {'filter': {}})['run_id']
+    s.runs.advance(lambda *_: None)
+    assert inbox.start_blocked.wait(3)
+    s.dispatch('runs.stop', {'run_id': run})
+    assert not s.llm.transport.calls
+    assert inbox.get(timeout=3)[0] == 'occupied'
+    pump(s)
+    result = s.runs.detail({'run_id': run})
+    assert result['status'] == 'stopped' and result['tasks'][0]['status'] == 'cancelled'
+    assert result['tasks'][0]['attempt_count'] == 0 and not s.llm.transport.calls

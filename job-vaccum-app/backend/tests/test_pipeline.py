@@ -654,3 +654,44 @@ def test_content_link_boundary_uses_later_source_links_when_representative_has_n
     ingest_records(s, run, [record('different-link', job_url_direct='https://external.example/b')])
     assert s.repo.list_jobs({})['total'] == 2
     assert s.repo.detail({'job_id': original})['description'] == 'Build software.'
+
+
+def test_preset_cities_stable_and_saved_empty_preserved(service):
+    s = service
+    cities = s.settings()['cities']
+    assert len(cities) == 19 and len({c['id'] for c in cities}) == 19
+    assert all(c['enabled'] for c in cities)
+    assert {c['location']: c['distance_miles'] for c in cities} == {
+        'San Francisco, CA': 25, 'Palo Alto, CA': 15, 'San Jose, CA': 15,
+        'Los Angeles, CA': 25, 'Irvine, CA': 15, 'San Diego, CA': 25,
+        'New York, NY': 25, 'Seattle, WA': 25, 'Boston, MA': 10, 'Cambridge, MA': 10,
+        'Chicago, IL': 25, 'Austin, TX': 25, 'Dallas, TX': 25, 'Atlanta, GA': 25,
+        'Raleigh, NC': 25, 'Denver, CO': 25, 'Washington, DC': 25,
+        'Pittsburgh, PA': 25, 'Philadelphia, PA': 25}
+    assert Repository(s.repo.db).settings()['cities'] == cities
+    s.dispatch('settings.save', {'cities': []})
+    assert Repository(s.repo.db).settings()['cities'] == []
+    s.dispatch('settings.save', {'cities': [{**cities[0], 'enabled': False, 'distance_miles': 5}]})
+    assert Repository(s.repo.db).settings()['cities'] == [{**cities[0], 'enabled': False, 'distance_miles': 5}]
+
+
+def test_run_rule_counts_all_tasks_and_replacement(service):
+    s = configure(service)
+    s.runs.attempt = lambda *args: outcome([record(description='')])
+    run = s.dispatch('runs.start', {})['run_id']
+    drain(s)
+    detail = s.runs.detail({'run_id': run, 'task_page_size': 1})
+    assert len(detail['tasks']) == 1
+    assert detail['stats']['filtered_count'] == 2
+    assert sum(detail['stats']['filter_reasons'].values()) == 2
+    task = detail['tasks'][0]
+    with s.repo.db:
+        s.repo.db.execute('UPDATE run_tasks SET stats_json=? WHERE id=?', (json.dumps({'filtered_count': 3, 'filter_reasons': {'company': 3}}), task['id']))
+        stats = s.runs.save_stats(run)
+    assert stats['filtered_count'] == 4 and stats['filter_reasons']['company'] == 3
+    assert sum(stats['filter_reasons'].values()) == 4
+    # Existing history has task reasons but lacks the new run-level field.
+    del stats['filter_reasons']
+    with s.repo.db:
+        s.repo.db.execute('UPDATE runs SET stats_json=? WHERE id=?', (json.dumps(stats), run))
+    assert sum(s.runs.list({})['items'][0]['stats']['filter_reasons'].values()) == 4

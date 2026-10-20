@@ -70,10 +70,12 @@ test('Runs: history, progress, per-search stats, batch filter and cleaned-up bat
     await expect(detail(page)).toContainText('took 12 minutes');
     await expect(detail(page).locator('.progress-row').first()).toContainText('3 of 3 tasks done · 1 failed');
     await expect(detail(page)).toContainText('Auto-scoring was off for this run');
-    const totals = detail(page).locator('.run-totals');
+    const totals = detail(page).locator(':scope > .run-totals');
     await expect(totals).toContainText('Received14');
     await expect(totals).toContainText('Filtered out3');
     await expect(totals).toContainText('Matched jobs4');
+    await expect(detail(page).getByRole('region', { name: 'Filtered by rule' })).toContainText('Senior title2');
+    await expect(detail(page).getByRole('region', { name: 'Filtered by rule' })).toContainText('Excluded company1');
     const bySearch = detail(page).getByRole('table', { name: 'By search' });
     await expect(bySearch.locator('tbody tr')).toHaveText([/^Software\s*1023$/, /^Data\s*412$/]);
     const tasks = detail(page).getByRole('table', { name: 'Tasks' }).locator('tbody tr');
@@ -84,6 +86,11 @@ test('Runs: history, progress, per-search stats, batch filter and cleaned-up bat
     await expect(tasks.nth(1)).toContainText('Rate limited 2×');
     await expect(tasks.nth(2)).toContainText('No results');
     await expect(tasks.nth(0).locator('td').nth(6)).toHaveAttribute('title', 'Senior title: 2');
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await resize(application, 640, 480);
+    expect(await noPageOverflow(page)).toBe(true);
+    await page.screenshot({ path: path.join(dataDir, 'rule-counts-narrow.png') });
+    await resize(application, 1280, 800);
 
     await runItems(page).nth(1).click();
     await expect(detail(page).locator('.run-status')).toHaveText('Completed');
@@ -203,6 +210,7 @@ test('Runs: Run now and Stop follow run events; repeat clicks are blocked', asyn
 
 test('Settings: searches, queries, locations, scoring switch, filter rules and proxy', async () => {
   const dataDir = await directory();
+  await seed(dataDir, [['settings.save', { cities: [] }]]);
   let { application, page } = await launch(dataDir);
   const settings = () => page.evaluate(() => window.jobVaccum.getSettings().then(response => response.result));
   try {

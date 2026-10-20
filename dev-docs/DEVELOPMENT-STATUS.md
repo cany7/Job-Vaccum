@@ -1,18 +1,80 @@
 # 开发状态
 
-最新状态：2026-10-19 M3 后端、协议、main/preload 由 Codex 完成并经 PR #7 合入 main（renderer 未改）；M2 第 2 步（renderer 界面）由 Claude 在 claude/dev-env 完成，已同步该主线并按授权提 PR（见文末「M2 第 2 步」）。M2 真实平台极小范围抓取与 M2 安装包验收仍未做；M3 Custom/Score/rubric 界面未开始。两个活动工作区分别使用 codex/dev、claude/dev-env，GitHub 必需检查和 auto-merge 已启用。
+最新状态：2026-10-19 已快速审阅 M3 本地修复 47d940d 与 M2 收尾九文件，未发现阻塞交付问题；用户已授权提交并推送，定向验证通过，按 PR 必需检查与自动合并流程交付。安装版分页重试遗留失败仍未定位，开发版单项复验通过，不宣称已修复。
+
+
+## M2/M3 推送前快速审阅（2026-10-19）
+
+范围：已有 M3 修复提交 47d940d 与九个 M2 未提交文件；本地已含 PR #8（db6b470）。本轮检查凭据读取失败边界、取消派发实际尝试次数、清理后缺失岗位续跑，以及预置城市不覆盖已存配置、整轮规则统计和 renderer/shared 契约。未发现阻塞交付问题，未新增产品代码修复。用户本轮明确授权提交并推送，取代此前暂不提交/推送的限制；已 fetch，origin/main 无新增提交。
+
+环境沿用上节本机环境与锁定依赖。本轮仅定向验证，没有重跑完整套件或重新打包：
+
+- desktop `npm run build`：类型检查和生产构建通过（本聊天前一轮分页核查执行，之后产品代码未改）。
+- backend `uv run --locked pytest -q tests/test_pipeline.py::test_preset_cities_stable_and_saved_empty_preserved tests/test_pipeline.py::test_run_rule_counts_all_tasks_and_replacement tests/test_scoring.py::test_resume_after_retention_keeps_receiver_alive_and_reports_missing_jobs tests/test_scoring.py::test_cancel_while_score_start_notification_is_blocked_does_not_send_or_count`：7 passed，0.30s。
+- desktop `node --test tests/business-ipc.test.cjs tests/model-credentials.test.cjs`：3 passed。
+- desktop `npx --no-install playwright test tests/e2e/runs.spec.cjs --grep 'history, progress' --output ../../tmp/pr7-push-review`：1 passed，1.7s。
+- desktop `npx --no-install playwright test tests/e2e/lists.spec.cjs --grep 'request failures, skeleton rows' --trace on --output ../../tmp/pr7-targeted-review`：1 passed，3.8s（本聊天前一轮）；首次带标题起始锚点的筛选未匹配用例，纠正筛选后执行成功。
+- 根目录 `git diff --check`：通过。远端 CI 结果以本轮 PR/Actions 为准，不把此前完整测试记录写成本轮重跑。
+
+遗留交接：M1 列表分页/请求失败重试，在 M2 安装回归发现。`desktop/tests/e2e/lists.spec.cjs:549` 的用例导入 125 条合成岗位，拦截 jobs:list 为延迟 2500ms 的 TIMEOUT，点击 Next page，待错误出现后恢复处理器，点击 Try again；第 577 行预期 51–100 of 125，旧安装版实际 101–125 of 125，原聊天单项复验仍失败。当前开发版同一测试通过，`ListView.tsx` 重试仅增加 reload，请求沿用 pageNumber；该逻辑本轮未改，原因仍未定位。旧安装包/trace 已按先前用户要求清理，本轮未重建安装版。后续先记录分页点击、jobs:list 的 scope/page/page_size、响应与页码变化，区分应用状态问题和自动化交互/启动时序问题；不能直接放宽断言或标记已修复。
+
+## M2 收尾补验（2026-10-19，本地未提交）
+
+工作区 `/Users/tim77/.codex/worktrees/m2-completion/job-vaccum-gui`，分支 `codex/m2-completion`，从最新 origin/main db6b470 开始。原工作区存在其他未提交修复，因此隔离实施；本轮产物不包含那些修复。用户明确要求完成后不要 commit/push，未创建 PR。
+
+交付：后端缺少 cities 设置时提供用户给定的 19 个美国城市，稳定 UUID、原顺序及半径、全部启用；Philadelphia 缺失参数按已声明假设为 enabled=true、25 miles。已保存的自定义城市和空数组不覆盖。整轮 filter_reasons 对全部任务的当前计数求和，重跑替换而不重复累计，历史运行可从任务恢复聚合；list/detail/event、shared 类型与 Runs 的 Filtered by rule 展示同步更新，无新表/依赖。按用户最新要求覆盖 ARCHITECTURE 原“少量城市启用”初值。
+
+实际验证（macOS 27.0.1 arm64、Node 26.12.0、Python 3.13.12、SQLite 3.54.0、Electron 44.9.0）：
+
+- 独立环境 `uv sync --locked`、`npm ci`；未复制 .venv/node_modules，未升级 lockfile。
+- backend `uv run --locked pytest -q`：174 passed，21.67s；新增城市默认值/稳定性/用户清空与编辑保护、跨任务分页聚合/统计替换/历史计数测试。
+- desktop `npm test`：类型检查、构建及 13 Node tests passed。
+- desktop `npx --no-install playwright test tests/e2e/runs.spec.cjs`：3 passed，13.8s。首轮新规则区复用 run-totals 导致旧测试定位不唯一，已收窄总数区域定位后通过；窄窗口及 reduced-motion 无页面溢出，检查了截图。
+- `npm run package:mac`：arm64 App/DMG 构建成功；只读挂载 DMG，ditto 复制到 `tmp/M2 installed/Job Vaccum.app` 后卸载挂载卷。构建日志 `tmp/m2-package.log`。
+- 安装副本 `JV_EXECUTABLE=… npx --no-install playwright test`：17 passed、4 skipped、1 failed（既有 request failures/skeleton/Markdown 用例 30 秒超时）。4 项为原有开发专用/未开放安装验证的评分测试；不宣称整套全过。M2 Runs 的 3 项安装版测试通过。
+- 用户授权真实条件：直连、software engineer、San Francisco, CA、25 miles，每平台目标 1 条。测试临时 DB 的运行快照限定每平台 results_wanted=1、max_attempts=1、单任务超时 120 秒，关闭自动评分；没有改变产品默认参数。由 DMG 安装副本的冻结后端 resume 该停止的测试运行，经过真实 spawn→JobSpy→筛选入库→运行完成；cwd=/、PATH=/usr/bin:/bin。
+- 真实结果：Indeed 和 LinkedIn 均 succeeded，各 1 条入库、1 次尝试，无缺 JD、无 warnings/429；Indeed 1 次 HTTP、LinkedIn 2 次 HTTP（含详情）。整轮 succeeded，received=2、new=2、filtered=0、scoring.total=0。诊断 frozen=true、arm64、schema=3/WAL、原生 curl 和 SQLite 读写通过。证据 `tmp/m2-live-result.json`、`tmp/m2-live.log`、`tmp/m2-live-stderr.log`，均不入 Git。无私人凭据、代理或付费模型调用。
+
+- 安装版失败单项带 trace 复验仍失败：请求失败后点 Try again，分页实际为 101–125 of 125，断言预期 51–100 of 125（lists.spec.cjs:577）。未改列表分页代码或放宽断言；保留为本轮安装回归未通过项，不能宣称 M2 全部出口无遗留。trace 在 tmp/job-vaccum-app/e2e-results/ 中。
+- `node ../../tmp/check-installed.cjs`：临时隐藏本 worktree 的 backend/.venv、backend/src、desktop/src、desktop/dist 后启动安装副本成功，finally 全部恢复；全新数据目录 settings/Locations 显示 19 条，Philadelphia 为 25 miles；640px、reduced-motion 无横向溢出，已检查 tmp/m2-presets-installed.png。验证运行不依赖项目 Python 或源码，使用受限 PATH 与 cwd=/。
+
+本机未签名测试包；未测试第二台物理 Mac，未做签名/公证。M3 UI 与 M4–M7 不在本次范围。先前“未进行 M2 真实抓取/安装包验证”的记录描述当时状态，本轮结果以本节为准；完整安装版回归的单项超时仍须单独记录复验结果。
 
 ## 当前交接摘要（2026-10-19）
 
 - 文档管理：按用户最新要求，AGENTS.md 和 dev-docs/ 从本次提交起纳入 Git；.agents/ 仍本地忽略。下方历史记录中的“开发文档仅本地维护”不再是当前规则。
 
-- M0、M1 已完成；M2 第 1 步（检索后端、运行协议、桌面桥接）已通过 PR #2 合入。M3 后端现已实现实际评分与四协议（PR #7）。M2 第 2 步 renderer（Runs 页、手动配置、批次筛选与失效提示）已完成，Runs 页**布局待确认**；M3 Custom/Score/rubric 界面、M2 真实平台验证与安装包验收及后续阶段未完成。
+- M0、M1 已完成；M2 第 1 步（检索后端、运行协议、桌面桥接）已通过 PR #2 合入。M3 后端现已实现实际评分与四协议（PR #7）。M2 第 2 步 renderer（Runs 页、手动配置、批次筛选与失效提示）已完成，Runs 页**布局待确认**；M3 Custom/Score/rubric 界面及后续阶段未完成；M2 真实抓取及安装补验结果见收尾记录，完整回归仍有遗留失败。
 - M3 后端轮本地验证为 **172 项后端、13 项 Node 测试及类型检查/构建、19 项完整开发版 E2E**，另 M3 桥接 E2E **1 passed**；M2 第 2 步合并该主线后的验证见文末。历史 PR 的 CI/测试只描述当时版本；远端交付按必需 CI 流程确认。
-- M2 版本尚未重新打包或验收安装副本；之前 M0/M1 安装包记录只证明当时版本。真实网站、真实代理、付费模型、第二台物理 Mac、正式签名与公证仍未验证。既有 E2E request failures / Markdown 场景曾间歇性超时，复验通过，但根因未确认修复。
+- 最新审阅修复本地验证：**177 项后端、15 项 Node 测试及类型检查/构建、4 项相关桌面 E2E**（Runs、设置、M3 桥接）。没有本轮完整 E2E/安装包/云端 CI 结果；本地提交暂不推送。
+- M2 已验证 DMG 安装副本与两平台各 1 条真实抓取，该包基于 db6b470 加 M2 收尾改动，不含后来提交的 M3 审阅修复。真实代理、付费模型、第二台物理 Mac、正式签名与公证仍未验证。既有 E2E request failures / Markdown 场景曾间歇性超时，复验通过，但根因未确认修复。
 - 当前仅两个活动目录：`job-vaccum-gui` 使用 `codex/dev`，`job-vaccum-gui-claude` 使用 `claude/dev-env`；main 无目录签出。默认本地提交，获准推送交付后创建/更新 PR 并开启 auto-merge；必需 CI 通过后合并，不绕过保护。
 - Python/Node 以项目版本文件为准，使用 uv 独立环境与 npm lockfile；不要求 pyenv，也不限制 uv 下载解释器。当前操作命令见下方「启动、测试和构建命令」。
 
 以下为各次交付的历史记录，未按时间完全排序。历史段落中的“当前”“未推送”“未合并”“未完成”、旧分支/目录及旧环境仅描述当时状态；后续已完成事项以上方摘要及相应补验/合并记录为准，保留原始测试结果，不把历史通过写成本轮重验。
+
+## M3 审阅修复：清理续跑、取消派发与模型凭据（2026-10-19，本地交付）
+
+用户先要求逐项核查审阅发现，合成复现确认后授权修复四项，并明确「先不要 push」。工作区保持 codex/dev；从干净的 25fe8e6 执行 `git fetch origin`、`git merge origin/main`，快进同步 M2 renderer 的 PR #8（db6b470），保留该 Agent 的全部设计与记录。本轮仅后端、main/shared 类型、测试和开发文档修改，renderer/preload/依赖/lockfile/JobSpy SHA/数据库迁移均未改。
+
+- 清理续跑：派发前岗位不存在时，该评分任务记 failed/NOT_FOUND，保留任务 ID 和历史尝试数，不发 LLM、不恢复已清理岗位；循环处理其他待评分任务，正常更新运行统计与终态。测试用真实接收循环和自动留存清理，覆盖 stopped/interrupted × 全部删除/混合存活四种组合，确认 surviving 岗位继续评分、全部缺失时 failed、混合时 partial、后续 Ping 仍响应。
+- 取消派发：worker 从阻塞的请求开始通知返回后、真正 transport 前再次检查 cancel；未发请求返回 CANCELLED。worker 结果附实际调用数，由串行写库循环结算最终 attempt_count，避免已排队的开始通知虚增次数；保留此前累计数。已有在途成功/重试/续跑回归继续通过，不改变有限重试、RPM 或 Retry-After 策略。
+- 凭据读取失败：main 保留加密文件、私有清除 service 当前模型 Key；不清除在途运行已捕获的凭据。getSettings 返回非敏感配置、has_key=false 及可选 model_key_error（受控 AUTH_ERROR）。无需模型的 preview/start/resume 继续可用；由 service 根据正式配置或原 resume 快照判断是否需要 Key，需要时返回 AUTH_ERROR，其他输入错误仍按原校验返回。jobs.score/model.test 在解密失败时保持拒绝。没有明文回退或自动恢复凭据文件。
+- Key 输入：合法单行 Key 去首尾空白后再加密保存；空白和含 CR/LF 的输入仍拒绝。Node 和真实 Electron→Python→本地 HTTP 测试均检查实际使用的 Key 无首尾空格/制表符。
+
+CONTRACTS 与 shared.Settings 同步可选 model_key_error；ACCEPTANCE 增加 A15/A16/R14/R15。M3 设置界面尚未实现，本轮只提供可供前端展示的错误字段，不宣称 renderer 已显示新提示。未扩展截图中的可暂缓重构、事件优化、Retry-After 上限或调度公平性建议。
+
+环境：macOS 27.0.1（26A434）arm64，Python 3.13.12 / SQLite 3.54.0，uv 0.13.1，Node 26.12.0 / npm 11.20.0，既定 Electron 44.9.0；复用既有独立环境，未升级依赖。
+
+| 实际命令 / 目录 | 结果 |
+| --- | --- |
+| backend `uv run --locked pytest -q tests/test_scoring.py tests/test_llm.py` | 60 passed，17.37 秒 |
+| backend `uv run --locked pytest -q` | 177 passed，18.64 秒 |
+| desktop `npm test` | 类型检查、生产构建、15 Node tests passed，Node 测试 12.12 秒；含加密不可用/解密失败、原快照判定、无秘密回显和 Key trim |
+| desktop `npm run build && npx --no-install playwright test tests/e2e/scoring.spec.cjs tests/e2e/runs.spec.cjs --trace retain-on-failure` | 4 passed，20.0 秒；M2 Runs/设置兼容与真实 M3 HTTP 链路。故意损坏测试目录的加密文件后，配置与 auto_score=false 的预览仍可用；需模型时 AUTH_ERROR，原文件保留，无额外模型请求 |
+| 根目录 `git diff --check`；renderer diff | 通过；renderer 无本轮修改 |
+
+测试全用合成数据、fake LLM 或 loopback HTTP；没有真实岗位抓取、代理、付费模型、私人凭据或新安装包验证。按用户要求只本地提交，未 push、未创建新 PR、未触发本轮 GitHub CI；此前远端推送授权不适用于这次修复。
 
 ## M3 后端、协议与 main/preload（2026-10-19）
 
@@ -731,3 +793,9 @@ main E2E 的带 trace 单项复验及最终核对结果见下方补充与最终�
 - M2 出口仍需：获得测试条件后的两个平台极小范围真实抓取；M2 版本重新打包与安装副本验收。均未执行。
 - Runs 页布局待用户确认后再定稿。
 
+
+## M2 收尾改动迁回 Codex 工作区（2026-10-19）
+
+按用户要求将临时 codex/m2-completion 的九个文件改动迁入 `/Users/tim77/PycharmProjects/job-vaccum-gui` 的 codex/dev，保留已提交 47d940d 的全部修复；开发状态文档合并两边记录。改动保持未提交、不 push，后续在本工作区继续。临时 worktree 及分支清理；该目录中的本轮临时数据库、真实抓取结果、日志、截图、trace、安装副本、DMG、构建产物及独立依赖随目录清理，不迁移到当前工作区。上文 tmp 路径仅记录当时验证证据，清理后不再可访问，验证结论保留在文档中。
+
+迁移后验证：backend `uv run --locked pytest -q` 179 passed（19.29 秒），desktop `npm run typecheck` 通过，`git diff --check` 通过。临时 worktree 已通过 Codex 归档工具移除（保留应用管理的可恢复 Git 快照），codex/m2-completion 分支已删除；原临时目录及其测试/打包产物确认不存在。当前 HEAD 仍为 47d940d，九个文件保持未提交。
