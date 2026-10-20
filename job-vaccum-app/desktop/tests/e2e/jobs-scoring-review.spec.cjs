@@ -115,6 +115,15 @@ test('B14 score states, confirmation counts, menu input and responsive appearanc
         await page.screenshot({ animations: 'disabled', path: path.join(shots, `${scheme}-${width}-failed.png`) });
         await row(page, title(1)).locator(".cell-score").click();
         await expect(drawer.locator('.score-large')).toHaveAttribute('data-tone', 'pending');
+        const alignment = await drawer.locator('.detail-header').evaluate(element => {
+          const score = element.querySelector('.score-large');
+          const a = score.getBoundingClientRect();
+          const b = element.querySelector('.detail-heading').getBoundingClientRect();
+          return { center: Math.abs(a.y + a.height / 2 - b.y - b.height / 2), radius: getComputedStyle(score).borderRadius, height: a.height };
+        });
+        expect(alignment.center).toBeLessThan(1);
+        expect(alignment.radius).toBe('7px');
+        expect(alignment.height).toBe(30);
         await page.screenshot({ animations: 'disabled', path: path.join(shots, `${scheme}-${width}-pending.png`) });
         await view(page).getByRole('button', { name: 'Close details' }).click();
         await scoreButton(page).click();

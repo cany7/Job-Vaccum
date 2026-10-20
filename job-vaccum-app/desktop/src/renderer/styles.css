@@ -1820,7 +1820,7 @@ th[aria-sort] .th-button {
 
 .detail-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--space-3);
 }
 
@@ -3030,7 +3030,7 @@ textarea.text-input {
 }
 
 .rule-button {
-  margin-left: auto;
+  margin-left: 0;
   font-size: 0.85rem;
   color: var(--text);
 }
@@ -3137,7 +3137,7 @@ textarea.text-input {
 }
 
 .task-table {
-  min-width: 700px;
+  min-width: 1100px;
   table-layout: fixed;
 }
 
@@ -3147,11 +3147,11 @@ textarea.text-input {
 }
 
 .task-col-query {
-  width: 18%;
+  width: 210px;
 }
 
 .task-col-location {
-  width: 14%;
+  width: 160px;
 }
 
 .task-col-site {
@@ -3358,14 +3358,6 @@ textarea.text-input {
   border-radius: 50%;
   background: var(--run-partial);
   box-shadow: 0 0 0 1px var(--card);
-}
-.score-large[data-tone="pending"], .score-large[data-tone="running"] {
-  min-width: 20px;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border-radius: 50%;
-  margin-top: 3px;
 }
 .score-attempt-error { color: var(--score-failed-text); margin-top: 4px; }
 .score-filter-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }

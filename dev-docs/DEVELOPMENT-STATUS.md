@@ -3,6 +3,16 @@
 最新状态：2026-10-20 Jobs/Shortlist 评分与批次界面修正已实现并本地提交于 codex/dev，未推送（见下节）。M2 Runs 修正已通过 PR #13 合入 main（3a6816f）；运行计划本体仍属 M7。真实模型、安装包未补验，安装版分页重试遗留失败仍暂缓。
 
 
+## Runs 与评分标记试用反馈修正（2026-10-20，Codex）
+
+用户试用后明确要求三处调整，修改保留在 codex/dev；中断后确认工作区改动完整，再继续验证。沿用前次记录的本机环境及既有两个设计 skill。
+
+- Filtered out 的 By rule 移到数字下方左侧，与 Matched 的 seen before 同行；弹出规则明细和键盘焦点行为保持。
+- Tasks 最小宽度调为 1100px，Query/Location 保留可读列宽，剩余宽度留给 Notes；在自身容器中横向滚动，继续纵向滚动、固定表头、单行截断与悬停全文。Notes 按既有定义显示无结果、缺 JD 数、限流次数、警告数，以及失败原因/错误码，不是用户编辑的备注。
+- 详情标题旁所有评分标记统一矩形，包括排队与评分中；与右侧标题和公司地点区域垂直居中。移除上一轮的圆形特例，保留空心描边/小时钟/蓝色以及无动画。SPEC 同步用户最新决定。
+
+验证：desktop `npm run build` 通过；`npx --no-install playwright test tests/e2e/runs.spec.cjs tests/e2e/jobs-scoring-review.spec.cjs` 的 3 项 Runs/评分回归通过，涵盖 By rule 行位置、实际横向滚动距离、230 任务纵向滚动和固定表头、矩形尺寸及垂直居中、浅深色与 640×480。该次 Settings 用例输入 Master 得到 Maste 而失败；单独执行 `npx --no-install playwright test tests/e2e/runs.spec.cjs --grep 'Settings: searches'` 后 1 passed（10.3 秒），未改 Settings 或放宽断言，首次原因未定位。根目录 `git diff --check` 通过。实际查看 Runs 横向滚至 Notes 的截图，以及评分详情浅色 640×480、深色 1280×800 截图，布局符合本次要求。未修改后端、依赖或 Settings；未重新打包、调用真实服务。仅本地提交，不推送。
+
 ## M3 Jobs/Shortlist 评分与批次界面修正（2026-10-20，Codex）
 
 用户授权仅此界面修正、本地 commit；开工执行 `git fetch origin && git merge origin/main`，codex/dev 已与最新主线 3a6816f 一致，工作区干净。阅读 AGENTS、README、两个设计 skill、指定 SPEC/CONTRACTS/M3/B08/B14 章节，以及浏览器中的「Jobs：批次筛选与评分」评审板。仅修改共用 renderer、相关 E2E 和本记录；后端、协议、依赖及 lockfile 未变。

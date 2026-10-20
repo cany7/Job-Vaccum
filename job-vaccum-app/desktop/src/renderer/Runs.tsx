@@ -467,7 +467,7 @@ function RunDetailView({
 
       <dl className="run-totals">
         <Total label="Received">{stats.received_count.toLocaleString("en-US")}</Total>
-        <Total label="Filtered out" extra={<RuleCounts reasons={stats.filter_reasons ?? {}} snapshot={state.data?.config_snapshot} />}>
+        <Total label="Filtered out" note={<RuleCounts reasons={stats.filter_reasons ?? {}} snapshot={state.data?.config_snapshot} />}>
           {stats.filtered_count.toLocaleString("en-US")}
         </Total>
         <Total label="Matched" hint="Jobs this run found, including ones already saved" note={`${seenBefore.toLocaleString("en-US")} seen before`}>
@@ -574,12 +574,11 @@ function StoppingNote({ run }: { run: RunSummary }) {
   );
 }
 
-function Total({ label, hint, note, extra, children }: { label: string; hint?: string; note?: string; extra?: ReactNode; children: ReactNode }) {
+function Total({ label, hint, note, children }: { label: string; hint?: string; note?: ReactNode; children: ReactNode }) {
   return (
     <div title={hint}>
       <dt>
         {label}
-        {extra}
       </dt>
       <dd>{children}</dd>
       {note ? <dd className="total-note">{note}</dd> : null}
