@@ -1,6 +1,45 @@
 # 开发状态
 
-最新状态：2026-10-19 已快速审阅 M3 本地修复 47d940d 与 M2 收尾九文件，未发现阻塞交付问题；用户已授权提交并推送，定向验证通过，按 PR 必需检查与自动合并流程交付。安装版分页重试遗留失败仍未定位，开发版单项复验通过，不宣称已修复。
+最新状态：2026-10-19 M3 前端（Settings › Model、评分模板、Score 菜单、详情评分、Runs 手动评分记录）已在 claude/dev-env 本地提交，未推送；本地开发版 179 后端、15 Node、25 E2E 全部通过。真实模型、安装包未验证。安装版分页重试遗留失败仍未定位，不宣称已修复。
+
+## M3 前端：模型连接、评分模板与手动评分（2026-10-19，Claude，本地提交未推送）
+
+### 授权与范围
+
+用户要求按文档完成 M3 前端部分，完成后本地提交、不 push。读过 AGENTS、dev-docs 的 README/SPEC/IMPLEMENTATION-PLAN/CONTRACTS/ACCEPTANCE/ARCHITECTURE/PIPELINE/DATA-MODEL 相关章节，及两个设计 skill（`.agents/skills/apple-design/SKILL.md`、`.agents/skills/emil-design-eng/SKILL.md`）。开工时 claude/dev-env 与 origin/main（484210b）一致。只改 renderer、其 E2E 及本文件/CONTRACTS 说明；未改 Python、main、preload、shared 类型、依赖或 lockfile，未新增 service 命令或业务表。
+
+### 实际交付
+
+- **Settings › Model**（新分区，位于 Filters & scoring 与 Proxy 之间）：四协议选择；Base URL 带协议示例、自动追加的后缀和最终 endpoint 预览（Gemini 含 URL 编码的 model ID），非本机 http 提示用 https；Model ID（Gemini 拒绝 models/ 前缀）。请求参数 temperature、最大输出 token（Anthropic 标必填，本地拦截空值，不补默认）、OpenAI 两协议的 reasoning effort 文本 / Anthropic、Gemini 的 thinking JSON 对象（本地仅校验对象语法）、Anthropic 版本头（预填 2023-06-01）；每项旁显示实际发送的协议字段名。空值为 null 不发送，0 照常发送；切换协议只发送该协议相关字段，不按模型名做任何适配。Save 写正式配置，Discard 还原；页头说明调用会发送的内容。
+- **API Key**：密码框单独 Save key / Replace key，经既有 setModelKey 存 safeStorage，界面不回显，只显示是否已保存；Remove key。读取失败时显示 model_key_error（原因在前、代码在后）及处理办法，测试与评分禁用并说明，抓取不受影响。
+- **Test connection**：用表单当前（可未保存）字段调用 testModel；等待中可 Cancel；成功「Connected」，失败显示受控原因、错误码、HTTP 状态及按 401/403、404、400/422、网络、限流给出的检查建议，输入不丢失。离开该分区时取消进行中的测试，不显示迟到结果。等待 model.test.completed / operation.failed 事件，复用既有 operation 等待机制。
+- **Filters & scoring**：新增 Markdown 评分模板编辑（占位示例，⌘↩ 保存，Discard）。保存后若自动评分关闭，在下方询问「Turn on / Not now」，不自动开启；自动评分开启时不允许清空模板并说明原因。自动评分说明在缺模型或 Key 时提示运行无法开始。
+- **Score ▾**（Jobs：Score、Export、Add to Shortlist；Shortlist：Set status、Score、Export、Remove）：Score selected (N)；Score all N matching… 先弹确认框，写明数量（当前筛选全部页）、筛选摘要、模型 ID 与服务主机，默认焦点 Cancel，确认后提交 FilterSpec。缺模型/Key/模板、Key 不可读、已有运行或请求进行中时按钮禁用，悬停说明原因。jobs.score 不自动重发，返回后重查运行状态；成功提示条「Scoring N jobs · View progress」打开该次运行，服务端数量与确认数不同则注明。
+- **详情抽屉**：Score / Rescore（有旧分时）同一入口；已排队/评分中或被阻止时禁用并说明。打开的详情在外部变更（评分结果）后重新读取，列表仍只提示「Results updated · Refresh」，不重排。失败时保留旧分并显示「!」、原评分时间和受控错误（M1 已有显示）。
+- **Runs**：额外读取 runs.list kind=rescore，搜索运行与手动评分运行合并为一个历史（批次筛选仍只用 pipeline）。评分运行显示「Scoring · N jobs」，详情为 Manual scoring、评分进度、Jobs/Scored/Failed，「N failed」打开按 Score: Failed 筛选的 Jobs。stopping 时显示仍在进行的任务与模型请求数。无法运行原因按 AUTH_ERROR/API key 链到 Model 设置。
+- 窄窗口：页面名不再被压缩，≤760px 隐藏顶栏副标题（数量在分页处仍可见），解决 Shortlist 四个按钮时标题被截断。
+
+### 实际命令与结果（macOS 27.0.1 arm64，Node 26.12.0，npm 11.20.0，Python 3.13.12，Electron 44.9.0；依赖与 lockfile 未变）
+
+| 命令／检查 | 结果 |
+| --- | --- |
+| desktop `npm test` | 类型检查、构建通过，15 Node tests passed |
+| desktop `npx playwright test`（构建后） | **25 passed，1.9 分钟**：原 22 项（仅 runs.spec 的 Save 选择器加 exact，及假 runs:list 区分 kind）＋新 `tests/e2e/scoring-ui.spec.cjs` 3 项 |
+| backend `uv run --locked pytest -q` | 179 passed，20.28 秒（后端未改，仅确认） |
+| 根目录 `git diff --check` | 通过 |
+
+新 E2E 使用真实 Electron/main/preload/Python 与本地假 Chat Completions HTTP server（合成岗位、合成 Key）：无模型时 Score 禁用及原因；四协议 endpoint 预览、Anthropic 必填/thinking JSON/非法 URL 本地拦截；空白 Key 拒绝、Key 去空白后保存、不出现在设置中；未保存字段测试（temperature=0 发送、空字段不发、设置仍为 null）；401 失败提示与输入保留；保存后配置与预期完全一致；删除/重存 Key；重启后损坏 model-key.enc 显示错误、Score 原因更新。模板保存后询问且未自动开启、Turn on 生效、开启时不能清空。Score all 30 确认框数量/模型/主机及 Cancel 焦点且零请求；勾选 2 条评分（一成功 7 分、一 HTTP 400 失败保留旧分 2 分并显示「!」及 HTTP 400）、运行期间 Score 禁用、View progress 打开评分运行、1 failed 进入失败筛选；搜索收窄后 Score all 1 matching、详情自动更新分数、Rescore；Shortlist 菜单；Runs 历史 3 条评分运行；全部请求带同一 Bearer Key。服务端 RPM 10，评分用例约 20 秒。
+
+### 视觉检查（实际查看截图）
+
+1280×800 浅色：Model（Chat Completions 已连接、Anthropic 未保存含必填错误）、Filters & scoring 模板与询问、Jobs Score 菜单、Score all 确认框、评分中详情（排队标记、Rescore 禁用）、Runs 评分运行完成、失败岗位详情；深色：失败详情、Model；640×480：Model、Shortlist、Jobs，无页面溢出，无页面错误。发现并修复 640 宽 Shortlist 标题被截断。新增界面无动画；菜单与确认框沿用既有键盘导航、Esc 和焦点返回，reduced-motion 沿用既有按钮规则。
+
+### 未完成与限制
+
+- 没有真实模型服务测试条件，四协议仅 Chat Completions 经本地假 server 走通界面链路；其他三协议界面只验证本地校验与预览（后端协议契约测试为既有交付）。未调用付费模型，未读取私人凭据。
+- 未重新打包或验证安装副本；安装版分页重试遗留失败未处理。
+- 续跑（Resume）及 interrupted 处理仍属 M4；AI 生成模板/方向、「从示例开始」入口属 M5，本轮只提供占位示例文本。
+- Runs 页布局仍待用户确认；评分运行详情不逐岗位列出任务（任务只有 job_id），失败岗位通过 Jobs 失败筛选查看（包含其他运行的失败）。
 
 
 ## M2/M3 推送前快速审阅（2026-10-19）
@@ -44,7 +83,7 @@
 
 - 文档管理：按用户最新要求，AGENTS.md 和 dev-docs/ 从本次提交起纳入 Git；.agents/ 仍本地忽略。下方历史记录中的“开发文档仅本地维护”不再是当前规则。
 
-- M0、M1 已完成；M2 第 1 步（检索后端、运行协议、桌面桥接）已通过 PR #2 合入。M3 后端现已实现实际评分与四协议（PR #7）。M2 第 2 步 renderer（Runs 页、手动配置、批次筛选与失效提示）已完成，Runs 页**布局待确认**；M3 Custom/Score/rubric 界面及后续阶段未完成；M2 真实抓取及安装补验结果见收尾记录，完整回归仍有遗留失败。
+- M0、M1 已完成；M2 第 1 步（检索后端、运行协议、桌面桥接）已通过 PR #2 合入。M3 后端现已实现实际评分与四协议（PR #7）。M2 第 2 步 renderer（Runs 页、手动配置、批次筛选与失效提示）已完成，Runs 页**布局待确认**；M3 Custom/Score/rubric 界面已在 claude/dev-env 本地提交（见上方 M3 前端节），M4 及后续阶段未完成；M2 真实抓取及安装补验结果见收尾记录，完整回归仍有遗留失败。
 - M3 后端轮本地验证为 **172 项后端、13 项 Node 测试及类型检查/构建、19 项完整开发版 E2E**，另 M3 桥接 E2E **1 passed**；M2 第 2 步合并该主线后的验证见文末。历史 PR 的 CI/测试只描述当时版本；远端交付按必需 CI 流程确认。
 - 最新审阅修复本地验证：**177 项后端、15 项 Node 测试及类型检查/构建、4 项相关桌面 E2E**（Runs、设置、M3 桥接）。没有本轮完整 E2E/安装包/云端 CI 结果；本地提交暂不推送。
 - M2 已验证 DMG 安装副本与两平台各 1 条真实抓取，该包基于 db6b470 加 M2 收尾改动，不含后来提交的 M3 审阅修复。真实代理、付费模型、第二台物理 Mac、正式签名与公证仍未验证。既有 E2E request failures / Markdown 场景曾间歇性超时，复验通过，但根因未确认修复。

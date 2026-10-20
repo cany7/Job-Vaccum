@@ -3,13 +3,14 @@ import { call, type RuleId, type Rules } from "./api";
 import { useApp } from "./context";
 import { useToast } from "./toasts";
 
-/** Settings › Filters & scoring: the automatic scoring switch and the filter rules. */
+/** Settings › Filters & scoring: the automatic scoring switch, the rubric and the filter rules. */
 export function FiltersSection() {
   const { catalog } = useApp();
   if (!catalog.settings) return <p className="muted">Loading…</p>;
   return (
     <section aria-labelledby="filters-title">
       <AutoScoring />
+      <RubricForm />
       <hr className="divider" />
       <RulesForm />
     </section>
@@ -25,6 +26,7 @@ function AutoScoring() {
   const [checked, setChecked] = useState(settings.auto_score_enabled);
   useEffect(() => setChecked(settings.auto_score_enabled), [settings.auto_score_enabled]);
   const noRubric = !settings.rubric.trim();
+  const noModel = !settings.model || !settings.has_key;
   // Without a rubric scoring can be turned off but not on (CONTRACTS).
   const locked = noRubric && !checked;
   const toggle = async (enabled: boolean) => {
@@ -59,10 +61,140 @@ function AutoScoring() {
               ? checked
                 ? "No scoring rubric yet. Runs can't start while this is on; turn it off to search without scores."
                 : "Needs a scoring rubric. Until then, new jobs stay unscored."
-              : "Applies to new runs. Jobs found while it's off stay unscored; existing scores don't change."}
+              : checked && noModel
+                ? "Needs a model connection and saved API key (Settings › Model). Runs can't start until then; turn it off to search without scores."
+                : "Applies to new runs. Jobs found while it's off stay unscored; existing scores don't change."}
           </span>
         </span>
       </label>
+    </div>
+  );
+}
+
+const rubricExample = `# What I'm looking for
+- Roles: …
+- Must have: …
+- Nice to have: …
+
+# Scoring
+- 8–10: strong match, apply first
+- 6–7: worth a look
+- 0–5: weak match or a clear mismatch`;
+
+/**
+ * The one Markdown rubric used for every search. A draft until Save; saving
+ * never turns automatic scoring on by itself, it asks.
+ */
+function RubricForm() {
+  const { api, catalog, refreshCatalog } = useApp();
+  const toast = useToast();
+  const settings = catalog.settings!;
+  const saved = settings.rubric;
+  const [draft, setDraft] = useState(saved);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [askAuto, setAskAuto] = useState(false);
+  const [turningOn, setTurningOn] = useState(false);
+  useEffect(() => {
+    setDraft(saved);
+    setError(null);
+  }, [saved]);
+  useEffect(() => {
+    if (settings.auto_score_enabled) setAskAuto(false);
+  }, [settings.auto_score_enabled]);
+
+  const dirty = draft !== saved;
+  const save = async () => {
+    if (!draft.trim() && settings.auto_score_enabled) {
+      setError("Automatic scoring needs a rubric. Turn it off above before removing the rubric.");
+      return;
+    }
+    setSaving(true);
+    const response = await call(() => api.saveSettings({ rubric: draft }));
+    setSaving(false);
+    if (!response.ok) {
+      setError(`${response.error.message} (${response.error.code})`);
+      return;
+    }
+    refreshCatalog();
+    toast({ text: draft.trim() ? "Rubric saved" : "Rubric removed" });
+    setAskAuto(!!draft.trim() && !response.result.auto_score_enabled);
+  };
+  const turnOn = async () => {
+    setTurningOn(true);
+    const response = await call(() => api.saveSettings({ auto_score_enabled: true }));
+    setTurningOn(false);
+    if (!response.ok) {
+      toast({ text: `Couldn't turn on automatic scoring. ${response.error.message}`, code: response.error.code, error: true });
+      return;
+    }
+    setAskAuto(false);
+    refreshCatalog();
+    toast({ text: "Automatic scoring is on for new runs" });
+  };
+
+  return (
+    <div className="rubric-form">
+      <div className="section-header">
+        <h2 id="rubric-title">Scoring rubric</h2>
+        <p className="muted">
+          One Markdown rubric for all your searches. The model gives each job a score from 0 to 10 and a short reason; Job Vaccum adds the answer format itself.
+          Scoring sends this rubric with each job's title, company and description to your model service.
+        </p>
+      </div>
+      <textarea
+        id="rubric"
+        className="text-input rubric-input"
+        rows={14}
+        value={draft}
+        placeholder={rubricExample}
+        spellCheck
+        aria-labelledby="rubric-title"
+        aria-describedby="rubric-help"
+        aria-invalid={error ? true : undefined}
+        onChange={(event) => {
+          setDraft(event.target.value);
+          setError(null);
+          setAskAuto(false);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && event.metaKey && dirty) {
+            event.preventDefault();
+            void save();
+          }
+        }}
+      />
+      {error ? (
+        <p className="field-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+      <p className="muted small" id="rubric-help">
+        Saving doesn't rescore jobs. To rescore, filter Jobs or Shortlist and use Score.
+      </p>
+      {askAuto ? (
+        <div className="note-box ask-box" role="status">
+          <span>Automatic scoring is off. Turn it on so each new run scores the jobs it finds?</span>
+          <span className="ask-actions">
+            <button type="button" className="link-button" onClick={() => setAskAuto(false)}>
+              Not now
+            </button>
+            <button type="button" className="button" disabled={turningOn} onClick={() => void turnOn()}>
+              Turn on
+            </button>
+          </span>
+        </div>
+      ) : null}
+      <div className="form-actions">
+        {dirty ? (
+          <button type="button" className="link-button" onClick={() => (setDraft(saved), setError(null))}>
+            Discard changes
+          </button>
+        ) : null}
+        <button type="button" className="button button-primary" disabled={!dirty || saving} onClick={() => void save()} title="Save (⌘↩)">
+          Save rubric
+        </button>
+      </div>
     </div>
   );
 }

@@ -5,11 +5,13 @@ import { themes, type Mode, type Theme, type UiPrefs } from "./prefs";
 import { useRequest } from "./requests";
 import { DataSection, SearchesSection } from "./SettingsData";
 import { FiltersSection } from "./SettingsFilters";
+import { ModelSection } from "./SettingsModel";
 import { ProxySection } from "./SettingsProxy";
 
 const sections: [SettingsSection, string][] = [
   ["searches", "Searches"],
   ["filters", "Filters & scoring"],
+  ["model", "Model"],
   ["proxy", "Proxy"],
   ["data", "Data"],
   ["appearance", "Appearance"],
@@ -47,6 +49,8 @@ export function Settings(props: {
           <SearchesSection />
         ) : section === "filters" ? (
           <FiltersSection />
+        ) : section === "model" ? (
+          <ModelSection />
         ) : section === "proxy" ? (
           <ProxySection />
         ) : section === "data" ? (
