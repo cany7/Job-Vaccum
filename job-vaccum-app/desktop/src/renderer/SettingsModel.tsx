@@ -162,6 +162,7 @@ export function ModelSection() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [test, setTest] = useState<TestState>({ phase: "idle" });
+  const connectionRevision = useRef(0);
   useEffect(() => {
     setDraft(fromModel(saved));
     setErrors({});
@@ -193,6 +194,11 @@ export function ModelSection() {
     }
   })();
 
+  const invalidateTest = () => {
+    connectionRevision.current += 1;
+    // Keep an in-flight test cancellable, but discard its result after an edit.
+    if (testRef.current.phase !== "testing") setTest({ phase: "idle" });
+  };
   const change = (next: Partial<Draft>) => {
     setDraft((current) => {
       const merged = { ...current, ...next };
@@ -201,7 +207,7 @@ export function ModelSection() {
       return merged;
     });
     setErrors({});
-    if (test.phase !== "testing") setTest({ phase: "idle" });
+    invalidateTest();
   };
 
   const save = async () => {
@@ -229,10 +235,11 @@ export function ModelSection() {
     }
     setTest({ phase: "testing" });
     testRef.current = { phase: "testing" };
+    const revision = connectionRevision.current;
     const started = await call(() => api.testModel({ model: built.model }));
     if (testRef.current.phase !== "testing") return;
     if (!started.ok) {
-      setTest({ phase: "failed", error: started.error });
+      setTest(revision === connectionRevision.current ? { phase: "failed", error: started.error } : { phase: "idle" });
       return;
     }
     const operationId = started.result.operation_id;
@@ -241,7 +248,7 @@ export function ModelSection() {
     const outcome = await waitForOperation(operationId);
     const current = testRef.current;
     if (current.phase !== "testing" || current.operationId !== operationId) return;
-    setTest(outcome.ok ? { phase: "ok" } : { phase: "failed", error: outcome.error });
+    setTest(revision !== connectionRevision.current ? { phase: "idle" } : outcome.ok ? { phase: "ok" } : { phase: "failed", error: outcome.error });
   };
   const cancelTest = () => {
     if (test.phase === "testing" && test.operationId) void call(() => api.cancelOperation({ operation_id: test.operationId! }));
@@ -328,7 +335,7 @@ export function ModelSection() {
         </div>
 
         <span className="form-label">API key</span>
-        <ApiKeyField />
+        <ApiKeyField onChanged={invalidateTest} />
       </div>
 
       <div className="section-header">
@@ -516,7 +523,7 @@ function TestResult({ test, onCancel }: { test: TestState; onCancel: () => void 
  * The key is saved on its own into the Mac's secure storage and never shown
  * again; settings and exports only know whether one is saved.
  */
-function ApiKeyField() {
+function ApiKeyField({ onChanged }: { onChanged: () => void }) {
   const { api, catalog, refreshCatalog } = useApp();
   const toast = useToast();
   const settings = catalog.settings!;
@@ -541,6 +548,7 @@ function ApiKeyField() {
       return;
     }
     setKey("");
+    onChanged();
     refreshCatalog();
     toast({ text: "API key saved" });
   };
@@ -550,6 +558,7 @@ function ApiKeyField() {
       toast({ text: `Couldn't remove the API key. ${response.error.message}`, code: response.error.code, error: true });
       return;
     }
+    onChanged();
     refreshCatalog();
     toast({ text: "API key removed" });
   };

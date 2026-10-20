@@ -14,14 +14,20 @@ const settingsSection = (page, name) => page.getByRole('navigation', { name: 'Se
 const scoreButton = page => page.locator('.topbar-actions').getByRole('button', { name: 'Score' });
 
 /** Chat Completions stand-in: scores 7, except jobs whose title is listed in `fail` (HTTP 400, not retried). */
-async function modelServer({ fail = [] } = {}) {
+async function modelServer({ fail = [], hold = false } = {}) {
   const calls = [];
+  const waiting = [];
+  const release = () => {
+    hold = false;
+    waiting.splice(0).forEach(resolve => resolve());
+  };
   const server = http.createServer(async (request, response) => {
     const chunks = [];
     for await (const chunk of request) chunks.push(chunk);
     const body = JSON.parse(Buffer.concat(chunks).toString());
     const text = JSON.stringify(body);
     calls.push({ path: request.url, headers: request.headers, body, text });
+    if (hold) await new Promise(resolve => waiting.push(resolve));
     if (body.model === 'denied-model') {
       response.writeHead(401, { 'Content-Type': 'application/json' });
       response.end(JSON.stringify({ error: { message: 'synthetic auth failure' } }));
@@ -38,8 +44,102 @@ async function modelServer({ fail = [] } = {}) {
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
-  return { calls, base: `http://127.0.0.1:${server.address().port}/custom/v1`, close: () => new Promise(resolve => server.close(resolve)) };
+  return {
+    calls, release, base: `http://127.0.0.1:${server.address().port}/custom/v1`,
+    close: () => { release(); return new Promise(resolve => server.close(resolve)); },
+  };
 }
+
+test('Model test results follow the tested configuration and saved key', async () => {
+  test.skip(!!packaged, 'M3 installed package has not been built.');
+  test.setTimeout(60_000);
+  const model = await modelServer({ hold: true });
+  const dataDir = await directory();
+  await seed(dataDir, [['settings.save', {
+    retention_days: 0, auto_score_enabled: false,
+    model: { protocol: 'chat_completions', base_url: model.base, model_id: 'synthetic' },
+  }]]);
+  const { application, page } = await launch(dataDir);
+  try {
+    await nav(page, 'Settings').click();
+    await settingsSection(page, 'Model').click();
+    await page.getByLabel('API key').fill('synthetic-ui-key');
+    await page.getByRole('button', { name: 'Save key' }).click();
+    const testButton = page.getByRole('button', { name: 'Test connection' });
+    await expect(testButton).toBeEnabled();
+    await testButton.click();
+    await expect.poll(() => model.calls.length).toBe(1);
+
+    // The old model's success must not certify fields edited while it was waiting.
+    await page.getByLabel('Model ID').fill('denied-model');
+    model.release();
+    await expect(testButton).toBeEnabled();
+    await expect(page.getByText('Connected. The model replied.')).toHaveCount(0);
+    expect(model.calls[0].body.model).toBe('synthetic');
+    await testButton.click();
+    await expect(page.getByRole('alert').filter({ hasText: "Couldn't connect" })).toContainText('HTTP 401', { timeout: 20_000 });
+
+    // A later unchanged test still reports success; deleting its key invalidates it.
+    await page.getByLabel('Model ID').fill('synthetic');
+    await testButton.click();
+    await expect(page.getByText('Connected. The model replied.')).toBeVisible({ timeout: 20_000 });
+    await page.getByRole('button', { name: 'Remove key' }).click();
+    await expect(testButton).toBeDisabled();
+    await expect(page.getByText('Connected. The model replied.')).toHaveCount(0);
+    expect(page.errors).toEqual([]);
+  } finally {
+    model.release();
+    await quit(application);
+    await model.close();
+  }
+});
+
+test('Stopped scoring leaves pending jobs available to score from details', async () => {
+  test.skip(!!packaged, 'M3 installed package has not been built.');
+  test.setTimeout(60_000);
+  const model = await modelServer({ hold: true });
+  const dataDir = await directory();
+  await seed(dataDir, [['dev.import_synthetic', { count: 2 }], ['settings.save', {
+    retention_days: 0, auto_score_enabled: false, rubric: 'Synthetic rubric.',
+    model: { protocol: 'chat_completions', base_url: model.base, model_id: 'synthetic' },
+  }]]);
+  const { application, page } = await launch(dataDir);
+  try {
+    await nav(page, 'Settings').click();
+    await settingsSection(page, 'Model').click();
+    await page.getByLabel('API key').fill('synthetic-ui-key');
+    await page.getByRole('button', { name: 'Save key' }).click();
+    await expect(page.getByRole('button', { name: 'Replace key' })).toBeVisible();
+    await nav(page, 'Jobs').click();
+    await row(page, title(0)).getByRole('checkbox').check();
+    await row(page, title(1)).getByRole('checkbox').check();
+    await scoreButton(page).click();
+    await page.getByRole('menuitem', { name: 'Score selected (2)' }).click();
+    await expect.poll(() => model.calls.length).toBe(1);
+    await row(page, title(1)).click();
+    const drawer = page.getByRole('complementary', { name: 'Job details' });
+    await expect(drawer.getByRole('button', { name: 'Rescore' })).toBeDisabled();
+    await nav(page, 'Runs').click();
+    await page.getByRole('button', { name: 'Stop', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Stopping…' })).toBeVisible();
+    model.release();
+    await expect(page.getByRole('region', { name: 'Run details' }).locator('.run-status')).toHaveText('Stopped');
+    const pending = (await page.evaluate(id => window.jobVaccum.getJobDetail({ job_id: id }), fixture(1).id)).result;
+    expect(pending.score_state).toBe('pending');
+
+    await nav(page, 'Jobs').click();
+    await row(page, title(1)).click();
+    await expect(drawer.getByRole('button', { name: 'Rescore' })).toBeEnabled();
+    await drawer.getByRole('button', { name: 'Rescore' }).click();
+    await expect(drawer.locator('.score-large')).toHaveText('7', { timeout: 20_000 });
+    expect(model.calls.filter(call => call.text.includes(title(1)))).toHaveLength(1);
+    expect(page.errors).toEqual([]);
+  } finally {
+    model.release();
+    await quit(application);
+    await model.close();
+  }
+});
 
 test('Settings › Model: protocol help, unsaved test, errors, key storage and save', async () => {
   test.skip(!!packaged, 'M3 installed package has not been built.');
