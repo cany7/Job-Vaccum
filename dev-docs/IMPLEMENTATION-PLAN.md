@@ -57,7 +57,7 @@ M1 第 2 步执行确认（2026-10-19）：用户明确将 run_ids 批次筛选�
 - 直接处理 DataFrame，不生成抓取中间文件/manifest/分页检查点；区分任务完成、失败、缺 JD 和正常零结果。
 - 每个抓取任务完成即串行去重入库，同轮匹配包含已入库岗位；岗位/关联/按自动评分开关创建的待评分任务/统计/完成状态原子提交。先入库代表固定，已有岗位仅补充来源和方向，不改首次发现时间。
 - Runs 页面分别展示抓取/评分进度及每方向简单统计；事件驱动刷新，不解析人类日志。
-- Jobs 页批次筛选：runs.list 提供 started_at/new_job_count，FilterSpec run_ids 按 is_new=1 匹配，下拉多选＋All；「新发现 N」链到该批次。
+- Jobs 页批次筛选：runs.list 提供 started_at/new_job_count，FilterSpec run_ids 按 is_new=1 匹配，下拉多选（不设 All 项，移除筛选即全部）；「新发现 N」链到该批次。
 
 - 2026-10-20 Runs 设计修正（M2 范围内先做）：运行状态色、卡片式历史、运行详情（By rule 弹出、seen before、任务表不分页表内滚动、Stop／Run again 在详情）、去掉顶部 Next run 横幅和顶栏运行按钮、侧边栏一行状态、全应用数字日期；runs.start/preview 支持 direction_ids，runs 记录 trigger_json，RunSummary 返回 searches/trigger。M7 前左栏计划区只有 + ：打开仅含搜索选择和 Run now 的新建面板（开关、时间、重复、Save 随 M7 加入）。
 
@@ -78,7 +78,7 @@ M1 第 2 步执行确认（2026-10-19）：用户明确将 run_ids 批次筛选�
 - 手动编辑 rubric；按批次入库后派发评分，与后续抓取重叠；本轮一岗位一评分任务，不做跨岗位输入复用，成功及时持久化。评分输入不含变化的方向/来源集合。
 - 四种协议的正常/截断/空响应/错误解析与有限重试。
 - 验证自动评分开关；评分模板为空时 auto_score_enabled 只能为 false。
-- jobs.score 与两页工具栏 Score 菜单（Score selected / Score all N matching…，后者先确认数量）及详情抽屉单岗位评分；首评与重评同一入口，不受自动开关影响；成功替换当前分，失败保留旧分和时间。
+- jobs.score 与两页工具栏 Score 菜单（Score selected / Score all N matching…，后者先确认数量）及详情抽屉单岗位评分；首评与重评同一入口，不受自动开关影响；2026-10-20 界面修正：重评失败显示旧分加橙点、排队/评分中空心描边标记、确认框写重评与未评分数量且不显示模型和主机、无筛选文案、菜单不预选且高亮为浅灰、批次编辑器去掉 All；成功替换当前分，失败保留旧分和时间。
 
 交付：真实业务完整闭环；四协议均有本地假 HTTP server 的契约测试。
 

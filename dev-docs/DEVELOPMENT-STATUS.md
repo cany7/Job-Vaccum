@@ -2,6 +2,13 @@
 
 最新状态：2026-10-20 M2 范围的 Runs 修正已实现并本地提交（claude/dev-env，未推送，见下节）；计划功能本体仍属 M7。2026-10-19 M3 前端已通过 PR #10 合入 main（18d548c），随后审阅修复经 PR #11 合入。真实模型、安装包未验证，安装版分页重试遗留失败仍暂缓。
 
+## M2 Runs 静态审阅与交付前检查（2026-10-20，Codex）
+
+- 静态审阅 Claude 提交 a6ca964，未发现阻止合并的代码问题；未修改产品代码。
+- 在 claude/dev-env 合并 origin/main（60b23c5），只产生 DEVELOPMENT-STATUS 文档冲突，合并保留 Runs 已实现记录及主线已确认的 Jobs 评分与批次设计。
+- 沿用上述本机环境执行：backend `uv run --locked pytest -q`：181 passed（20.05 秒）；desktop `npm test`：类型检查、构建与 15 Node tests 通过；`npm run test:e2e:smoke`：6 passed（7.4 秒）；`git diff --check` 通过。
+- 本轮未重复完整 E2E、视觉检查或安装包验证，未使用真实抓取或付费模型。用户已授权推送、PR 自动合并并同步两个开发分支；远端结果以 PR/Actions 为准。
+
 ## M2 Runs 修正实现（2026-10-20，Claude，本地提交未推送）
 
 ### 授权与范围
@@ -50,7 +57,8 @@ M2/M3 界面评审后与用户确定，已同步 SPEC v0.7（窗口布局、运�
 - Runs 页：计划区（运行中/等待置顶，其余按时间早到晚）＋分隔线＋历史卡片；顶栏无运行按钮，Run now 在计划详情，Stop／Run again 在运行详情；状态色 Running 蓝、Completed 绿、Partly completed 橙、Failed 红、停止灰、等待/未运行灰空心圆；Matched 加「N seen before」，Filtered out 的 By rule 弹出逐条数量；任务表不分页、表内滚动；配置不全时左栏一行提示，不显示错误码。
 - 侧边栏底部一行状态（后台异常＞运行中＞停止中＞Next run＞Last run），不再显示 Backend ready；窄条圆点同色。
 - 全应用日期改为数字：MM/DD HH:MM、表格 MM/DD，非今年 YYYY/MM/DD。
-- 待做：M2 范围的 Runs 修正已于同日实现（见上节）；计划功能本体随 M7。Jobs 评分与 Settings 新分区的评审意见尚未与用户逐条确认，未写入文档。
+- Jobs 评分与批次（画布「Jobs：批次筛选与评分」全部建议采纳）：重评失败仍显示旧分加橙色小点，只有从未成功才显示「!」，详情写旧分时间与「Last attempt failed」；排队/评分中改为空心描边标记；Score all 确认框写总数、将重评数和未评分数，不显示模型 ID 和服务主机（以后有多个命名模型配置时显示配置名称），无筛选时文案改为「Every job in Jobs (N) is scored」；菜单鼠标打开不预选、高亮改浅灰；批次编辑器去掉 All 项，移除筛选即全部。同步 SPEC、CONTRACTS、IMPLEMENTATION-PLAN（M3）、ACCEPTANCE B14。
+- 待做：M2 范围的 Runs 修正已于同日实现（见上节）；上面的 Jobs 修改尚未实现；计划功能本体随 M7。Settings 新分区的评审意见尚未与用户确认，未写入文档。
 
 ## M3 前端审阅修复（2026-10-19，Codex）
 
