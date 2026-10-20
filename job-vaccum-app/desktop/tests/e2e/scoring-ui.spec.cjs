@@ -348,10 +348,11 @@ test('Score menu, details Score and scoring runs: selected, all matching, failur
     await expect(scoreButton(page)).toHaveAttribute('title', /run is in progress/);
     await started.getByRole('button', { name: 'View progress' }).click();
     const detail = page.getByRole('region', { name: 'Run details' });
-    await expect(detail).toContainText('Manual scoring');
+    await expect(detail.getByRole('heading', { level: 2 })).toContainText('Scoring · 2 jobs');
+    await expect(detail).toContainText('Manual · ');
     await expect(detail.locator('.run-status')).toHaveText(/Partly completed/, { timeout: 30_000 });
     await expect(detail).toContainText('2 of 2 tasks done');
-    await expect(page.getByRole('navigation', { name: 'Run history' }).locator('.run-item').first()).toContainText('Scoring · 2 jobs');
+    await expect(page.getByRole('navigation', { name: 'Run history' }).locator('.run-card').first()).toContainText('2 jobs');
     expect(model.calls.filter(call => call.text.includes(title(2)))).toHaveLength(1);
     const score2 = (await page.evaluate(id => window.jobVaccum.getJobDetail({ job_id: id }), fixture(2).id)).result;
     expect(score2.score).toBe(2);
@@ -396,7 +397,7 @@ test('Score menu, details Score and scoring runs: selected, all matching, failur
     await page.keyboard.press('Escape');
 
     await nav(page, 'Runs').click();
-    await expect(page.getByRole('navigation', { name: 'Run history' }).locator('.run-item')).toHaveCount(3);
+    await expect(page.getByRole('navigation', { name: 'Run history' }).locator('.run-card')).toHaveCount(3);
     expect(model.calls.every(call => call.headers.authorization === 'Bearer synthetic-ui-key')).toBe(true);
     expect(page.errors).toEqual([]);
   } finally {

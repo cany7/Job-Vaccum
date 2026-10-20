@@ -13,6 +13,8 @@ from job_vaccum.storage.filters import fields, string, strings, integer, choice,
 from job_vaccum.storage.repository import row_dict, JOIN
 
 ACTIVE = ('running', 'stopping')
+# Schedule triggers (source=schedule) arrive with M7.
+MANUAL = json.dumps({'source': 'manual'})
 
 
 class Runs:
@@ -46,10 +48,20 @@ class Runs:
             return 'scoring'
         return 'cleaning'
 
-    def snapshot(self):
+    def snapshot(self, params):
         snapshot = self.repo.settings()
-        enabled_queries = [q for d in snapshot['directions'] if d['enabled'] for q in d['queries'] if q['enabled']]
+        selected = params.get('direction_ids')
+        if selected is not None:
+            known = {d['id'] for d in snapshot['directions']}
+            # Unknown or deleted IDs are ignored; nothing left is not "all".
+            selected = [i for i in strings(selected, 'direction_ids') if i in known]
+            if not selected:
+                raise CommandError('Choose at least one existing search.')
+        snapshot['direction_ids'] = selected
+        enabled_queries = self.queries(snapshot)
         enabled_cities = [c for c in snapshot['cities'] if c['enabled']]
+        if selected is not None and not enabled_queries:
+            raise CommandError('The chosen searches have no enabled query.')
         if not enabled_queries or not enabled_cities or not snapshot['platforms']:
             raise CommandError('Enable at least one query, city and platform.')
         if snapshot['auto_score_enabled'] and (not snapshot['rubric'].strip() or not snapshot['model']):
@@ -58,6 +70,12 @@ class Runs:
             self.validate_scoring(snapshot)
         self.proxy_for(snapshot)
         return {**snapshot, 'parameters': json.loads(json.dumps(PARAMETERS)), 'jobspy_commit': JOBSPY_COMMIT}
+
+    @staticmethod
+    def queries(snapshot):
+        selected = snapshot.get('direction_ids')
+        return [q for d in snapshot['directions'] if d['enabled'] and (selected is None or d['id'] in selected)
+                for q in d['queries'] if q['enabled']]
 
     def proxy_for(self, snapshot):
         proxy = snapshot['proxy']
@@ -72,21 +90,21 @@ class Runs:
         return proxy['url']
 
     def preview(self, params):
-        fields(params, set())
-        s = self.snapshot()
-        count = sum(q['enabled'] for d in s['directions'] if d['enabled'] for q in d['queries']) * sum(c['enabled'] for c in s['cities']) * len(s['platforms'])
+        fields(params, {'direction_ids'})
+        s = self.snapshot(params)
+        count = len(self.queries(s)) * sum(c['enabled'] for c in s['cities']) * len(s['platforms'])
         return {'task_count': count, 'parameters': s['parameters'], 'auto_score_enabled': s['auto_score_enabled']}
 
     def start(self, params):
-        fields(params, set())
+        fields(params, {'direction_ids'})
         self.ensure_idle()
-        snapshot = self.snapshot()
+        snapshot = self.snapshot(params)
         identifier, now = str(uuid4()), self.repo.clock()
-        queries = sorted((q for d in snapshot['directions'] if d['enabled'] for q in d['queries'] if q['enabled']), key=lambda q: q['id'])
+        queries = sorted(self.queries(snapshot), key=lambda q: q['id'])
         cities = sorted((c for c in snapshot['cities'] if c['enabled']), key=lambda c: c['id'])
         with self.db:
             self.db.execute('BEGIN IMMEDIATE')
-            self.db.execute("INSERT INTO runs (id,kind,status,created_at,started_at,config_snapshot_json) VALUES (?,'pipeline','running',?,?,?)", (identifier, now, now, json.dumps(snapshot)))
+            self.db.execute("INSERT INTO runs (id,kind,status,created_at,started_at,config_snapshot_json,trigger_json) VALUES (?,'pipeline','running',?,?,?,?)", (identifier, now, now, json.dumps(snapshot), MANUAL))
             order = 0
             for q in queries:
                 for city in cities:
@@ -132,7 +150,7 @@ class Runs:
         identifier, now = str(uuid4()), self.repo.clock()
         with self.db:
             self.db.execute('BEGIN IMMEDIATE')
-            self.db.execute("INSERT INTO runs(id,kind,status,created_at,started_at,config_snapshot_json) VALUES (?,'rescore','running',?,?,?)", (identifier, now, now, json.dumps(snapshot)))
+            self.db.execute("INSERT INTO runs(id,kind,status,created_at,started_at,config_snapshot_json,trigger_json) VALUES (?,'rescore','running',?,?,?,?)", (identifier, now, now, json.dumps(snapshot), MANUAL))
             for order, job_id in enumerate(ids):
                 self.db.execute("INSERT INTO run_jobs VALUES (?,?,0)", (identifier, job_id))
                 self.db.execute("INSERT INTO run_tasks(id,run_id,kind,stable_order,spec_json,status) VALUES (?,?,'score',?,?,'pending')", (str(uuid4()), identifier, order, json.dumps({'job_id': job_id})))
@@ -169,6 +187,12 @@ class Runs:
         # Resolve display names without resurrecting deleted directions.
         stats['directions'] = [{**d, 'name': current[0]} for d in stats.get('directions', [])
                                if (current := self.db.execute('SELECT name FROM directions WHERE id=?', (d['direction_id'],)).fetchone())]
+        snapshot = json.loads(row['config_snapshot_json'])
+        selected = snapshot.get('direction_ids')
+        # Names as they were when the run started; older runs predate the selection.
+        names = {d['id']: d['name'] for d in snapshot.get('directions', [])}
+        result['searches'] = None if selected is None else [{'id': i, 'name': names.get(i, '')} for i in selected]
+        result['trigger'] = json.loads(row['trigger_json'] or 'null')
         result.update(stats=stats, error=json.loads(row['error_json'] or 'null'),
                       stage=self.stage(row['id'], row['status']),
                       new_job_count=self.db.execute('SELECT count(*) FROM run_jobs WHERE run_id=? AND is_new=1', (row['id'],)).fetchone()[0])

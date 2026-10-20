@@ -31,7 +31,9 @@ export interface RunParameters {
   results_wanted: Record<Platform, number>; hours_old: number; retrieval_concurrency: number;
   timeout_seconds: number; max_attempts: number; retry_base_seconds: number; llm_concurrency: number; llm_rpm: number;
 }
-export interface RunSnapshot extends PipelineSettings { directions: Direction[]; parameters: RunParameters; jobspy_commit: string }
+export interface RunSnapshot extends PipelineSettings { directions: Direction[]; parameters: RunParameters; jobspy_commit: string;
+  /** Searches chosen for the run; null or absent (older runs) means all. */
+  direction_ids?: string[] | null }
 export type RunStatus = 'running' | 'stopping' | 'succeeded' | 'partial' | 'failed' | 'stopped' | 'interrupted';
 export type RunStage = 'retrieving' | 'scoring' | 'cleaning' | null;
 export interface ActiveRun { run_id: string; status: RunStatus; stage: RunStage }
@@ -44,7 +46,14 @@ export interface RunStats {
 export interface RunSummary {
   id: string; kind: 'pipeline' | 'rescore'; status: RunStatus; stage: RunStage; created_at: number;
   started_at: number; finished_at: number | null; new_job_count: number; stats: RunStats; error: ApiError | null;
+  /** null = all searches; otherwise the chosen searches with their names when the run started. */
+  searches: { id: string; name: string }[] | null;
+  /** null for runs from before triggers were recorded (shown as manual). */
+  trigger: RunTrigger | null;
 }
+export interface RunTrigger { source: 'manual' | 'schedule'; schedule_id?: string; firing_id?: string }
+/** Searches to run: omitted or null = all enabled searches. */
+export interface RunSelection { direction_ids?: string[] | null }
 export interface RetrievalSpec { query_id: string; direction_id: string; expression: string; city_id: string;
   location: string; distance_miles: number; site: Platform; country_indeed: string }
 export interface ScoreSpec { job_id: string }
@@ -65,8 +74,8 @@ export interface RunsApi {
   getDraft(params: { draft_kind: DraftKind }): Promise<ApiResult<Draft>>;
   saveDraft(params: SaveDraft): Promise<ApiResult<Draft>>;
   applyDraft(params: { draft_kind: DraftKind }): Promise<ApiResult<Draft>>;
-  previewRun(): Promise<ApiResult<{ task_count: number; parameters: RunParameters; auto_score_enabled: boolean }>>;
-  startRun(): Promise<ApiResult<{ run_id: string }>>;
+  previewRun(params?: RunSelection): Promise<ApiResult<{ task_count: number; parameters: RunParameters; auto_score_enabled: boolean }>>;
+  startRun(params?: RunSelection): Promise<ApiResult<{ run_id: string }>>;
   listRuns(params?: { page?: number; page_size?: number; kind?: 'pipeline' | 'rescore' }): Promise<ApiResult<{ items: RunSummary[]; total: number }>>;
   getRunDetail(params: { run_id: string; task_page?: number; task_page_size?: number }): Promise<ApiResult<RunDetail>>;
   stopRun(params: { run_id: string }): Promise<ApiResult<{ run_id: string }>>;

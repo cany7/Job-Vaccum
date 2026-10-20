@@ -64,7 +64,7 @@ async function launch(dataDir) {
   const page = await application.firstWindow();
   page.errors = [];
   page.on('pageerror', error => page.errors.push(error.message));
-  await expect(page.getByRole('status')).toHaveText('Backend ready');
+  await expect(page.locator('.sidebar-status')).toHaveAttribute('data-connection', 'ready');
   return { application, page };
 }
 

@@ -313,7 +313,7 @@ def test_m1_to_m2_migration_preserves_data_and_failure_rolls_back(tmp_path):
         assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='runs'").fetchone()
     with closing(connect(path)) as db:
         assert Repository(db).list_jobs({}) == before
-        assert db.execute('SELECT version FROM schema_version').fetchone()[0] == 3
+        assert db.execute('SELECT version FROM schema_version').fetchone()[0] == 4
 
 
 def test_jobspy_whitelist_attrs_missing_values_and_native_shapes():
@@ -695,3 +695,67 @@ def test_run_rule_counts_all_tasks_and_replacement(service):
     with s.repo.db:
         s.repo.db.execute('UPDATE runs SET stats_json=? WHERE id=?', (json.dumps(stats), run))
     assert sum(s.runs.list({})['items'][0]['stats']['filter_reasons'].values()) == 4
+
+
+def test_selected_searches_snapshot_trigger_and_global_dedup(service):
+    s = configure(service, sites=['linkedin'], directions=3)
+    one, two, three = (d['id'] for d in s.repo.directions())
+    assert s.dispatch('runs.preview', {'direction_ids': None})['task_count'] == 3
+    assert s.dispatch('runs.preview', {'direction_ids': [one]})['task_count'] == 1
+    for invalid in ([], ['missing'], 'not-a-list'):
+        with pytest.raises(CommandError) as error:
+            s.dispatch('runs.start', {'direction_ids': invalid})
+        assert error.value.code == 'VALIDATION_ERROR'
+    s.dispatch('directions.save', {'id': three, 'enabled': False})
+    with pytest.raises(CommandError, match='no enabled query'):
+        s.dispatch('runs.preview', {'direction_ids': [three]})
+
+    first = s.dispatch('runs.start', {'direction_ids': [two, 'missing', one]})['run_id']
+    drain(s)
+    d = detail(s, first)
+    assert {t['spec']['direction_id'] for t in d['tasks']} == {one, two} and d['task_total'] == 2
+    assert d['searches'] == [{'id': two, 'name': 'Search 1'}, {'id': one, 'name': 'Search 0'}]
+    assert d['config_snapshot']['direction_ids'] == [two, one]
+    assert d['trigger'] == {'source': 'manual'} and d['new_job_count'] == 1
+
+    # All searches (enabled only); the job found by the first run is a historical hit.
+    second = start(s)
+    drain(s)
+    d = detail(s, second)
+    assert d['searches'] is None and d['task_total'] == 2
+    assert d['stats']['matched_job_count'] == 1 and d['new_job_count'] == 0
+    assert s.repo.list_jobs({'run_ids': [first]})['total'] == 1
+    assert s.repo.list_jobs({'run_ids': [second]})['total'] == 0
+
+    s.dispatch('directions.delete', {'id': one})
+    s.dispatch('directions.delete', {'id': two})
+    item = next(i for i in s.dispatch('runs.list', {})['items'] if i['id'] == first)
+    assert item['searches'] == [{'id': two, 'name': 'Search 1'}, {'id': one, 'name': 'Search 0'}]
+    assert item['trigger'] == {'source': 'manual'}
+    with pytest.raises(CommandError, match='existing search'):
+        s.dispatch('runs.start', {'direction_ids': [one, two]})
+
+    s.dispatch('settings.save', {'rubric': 'Evaluate engineering fit.', 'model': {
+        'protocol': 'chat_completions', 'base_url': 'http://localhost:9999/v1', 'model_id': 'fake'}})
+    job = s.repo.list_jobs({})['items'][0]['id']
+    rescore = s.dispatch('jobs.score', {'job_ids': [job]})['run_id']
+    d = detail(s, rescore)
+    assert d['kind'] == 'rescore' and d['searches'] is None and d['trigger'] == {'source': 'manual'}
+
+
+def test_m2_to_trigger_migration_keeps_runs_as_untriggered(tmp_path):
+    path = tmp_path / 'old.sqlite3'
+    with closing(sqlite3.connect(path)) as db:
+        db.executescript('CREATE TABLE schema_version(version INTEGER PRIMARY KEY);INSERT INTO schema_version VALUES(3);'
+                         + ''.join((MIGRATIONS / f'00{v}.sql').read_text() for v in (1, 2, 3)))
+        db.execute("INSERT INTO runs (id,kind,status,created_at,started_at,config_snapshot_json) VALUES ('old','pipeline','succeeded',1,1,'{\"directions\":[]}')")
+        db.commit()
+    db = connect(path)
+    s = Service(db, tmp_path, clock=lambda: NOW)
+    try:
+        assert db.execute('SELECT version FROM schema_version').fetchone()[0] == 4
+        item = s.dispatch('runs.list', {})['items'][0]
+        assert item['id'] == 'old' and item['trigger'] is None and item['searches'] is None
+    finally:
+        s.runs.close()
+        db.close()

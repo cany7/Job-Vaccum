@@ -25,7 +25,7 @@ Startup clears App-owned tmp resources and checks retention; automatic cleanup c
 First output, only after the lock and migrations succeed:
 
 ```json
-{"type":"event","name":"ready","seq":1,"data":{"protocol_version":1,"app_version":"0.1.0","schema_version":3}}
+{"type":"event","name":"ready","seq":1,"data":{"protocol_version":1,"app_version":"0.1.0","schema_version":4}}
 ```
 
 Requests contain `type: "request"`, a string `id` (1–128 characters), a
@@ -36,7 +36,7 @@ characters or contain multiple complete messages.
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `app.status` | `{}` | `{active_run:null, operations:[], cleanup:{status:"idle"}, configuration_complete:false, storage:{schema_version:3,journal_mode:"wal"}}` |
+| `app.status` | `{}` | `{active_run:null, operations:[], cleanup:{status:"idle"}, configuration_complete:false, storage:{schema_version:4,journal_mode:"wal"}}` |
 | `app.ping` | `{message:string}` (≤256 characters) | `{message:string}` |
 | `app.diagnostics` | `{}` | Offline Python/architecture/dependency versions, declared locked JobSpy commit, native curl version, SQLite transactional read/write result |
 
@@ -210,6 +210,12 @@ filters only is_new=1 associations; empty means All, deleted IDs match no jobs,
 and rescore IDs are rejected. Export shares those filters. Detail paginates
 tasks using task_page/task_page_size and includes up to 200 surviving job links.
 The full result list uses jobs.list, not the detail link sample.
+
+Migration 004 adds a nullable `runs.trigger_json`. `runs.preview/start` accept
+`direction_ids` (omitted or null = all enabled searches; unknown IDs are ignored,
+an empty selection is a VALIDATION_ERROR). The snapshot keeps the chosen IDs and
+summaries return `searches` (null or `[{id,name}]` from the snapshot) and
+`trigger` (`{source:"manual"}` until schedules arrive in M7; null for older runs).
 
 Default parameters are one retrieval worker, LinkedIn 10 / Indeed 100 results,
 72 hours, a 600-second attempt timeout, three attempts with interruptible 5/10s
