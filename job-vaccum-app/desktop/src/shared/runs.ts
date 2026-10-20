@@ -37,7 +37,7 @@ export type RunStage = 'retrieving' | 'scoring' | 'cleaning' | null;
 export interface ActiveRun { run_id: string; status: RunStatus; stage: RunStage }
 export interface TaskCounts { total: number; succeeded: number; failed: number; active: number; pending: number; cancelled: number }
 export interface RunStats {
-  retrieval: TaskCounts; scoring: TaskCounts; received_count: number; filtered_count: number;
+  retrieval: TaskCounts; scoring: TaskCounts; received_count: number; filtered_count: number; filter_reasons?: Record<string, number>;
   matched_job_count: number; new_job_count: number;
   directions: { direction_id: string; name: string; received_count: number; filtered_count: number; matched_job_count: number }[];
 }

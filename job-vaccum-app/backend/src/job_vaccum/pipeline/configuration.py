@@ -13,8 +13,30 @@ PARAMETERS = {'results_wanted': {'linkedin': 10, 'indeed': 100}, 'hours_old': 72
               'retrieval_concurrency': 1, 'timeout_seconds': 600, 'max_attempts': 3,
               'retry_base_seconds': 5, 'llm_concurrency': 1, 'llm_rpm': 10}
 RULE_IDS = ('test_jobs', 'senior_title', 'experience', 'authorization', 'language', 'graduation', 'degree')
+# Stable IDs keep unsaved defaults consistent across reads and restarts.
+DEFAULT_CITIES = [
+    {'id': '61c14e8e-d32d-41aa-8e77-29441a58d5f8', 'location': 'San Francisco, CA', 'distance_miles': 25, 'enabled': True},
+    {'id': '6659dcdf-00f0-4606-9cf1-d48d93017e32', 'location': 'Palo Alto, CA', 'distance_miles': 15, 'enabled': True},
+    {'id': '66036c5c-ce34-4950-b9b5-e1a846c9a355', 'location': 'San Jose, CA', 'distance_miles': 15, 'enabled': True},
+    {'id': 'b3f05320-b127-41c4-be9a-26cbb8050ebf', 'location': 'Los Angeles, CA', 'distance_miles': 25, 'enabled': True},
+    {'id': '4add1b5c-e191-44db-8cda-d814741782f6', 'location': 'Irvine, CA', 'distance_miles': 15, 'enabled': True},
+    {'id': '3d0ef5de-b0b7-4583-b4f4-771d2c8517d8', 'location': 'San Diego, CA', 'distance_miles': 25, 'enabled': True},
+    {'id': '47e4d248-d6c1-4f04-acda-7edfafe89fdf', 'location': 'New York, NY', 'distance_miles': 25, 'enabled': True},
+    {'id': '19a7be33-435a-4ad7-96eb-54d519980250', 'location': 'Seattle, WA', 'distance_miles': 25, 'enabled': True},
+    {'id': '67d439c5-a509-4ac3-89e7-5f09ad27a306', 'location': 'Boston, MA', 'distance_miles': 10, 'enabled': True},
+    {'id': 'eb29aedb-1c2d-432e-aaf8-144bb61ffd69', 'location': 'Cambridge, MA', 'distance_miles': 10, 'enabled': True},
+    {'id': 'a9d47d2d-09e6-499d-ba0b-afef0f80e070', 'location': 'Chicago, IL', 'distance_miles': 25, 'enabled': True},
+    {'id': 'c72503ab-f769-45f1-9fe5-4fe03fd7e075', 'location': 'Austin, TX', 'distance_miles': 25, 'enabled': True},
+    {'id': '11638705-fdfc-420e-9784-8deb2c528a14', 'location': 'Dallas, TX', 'distance_miles': 25, 'enabled': True},
+    {'id': 'a4050cc7-9482-4303-bb05-11fb13eb06ee', 'location': 'Atlanta, GA', 'distance_miles': 25, 'enabled': True},
+    {'id': '8620521e-03a6-49e5-a083-6620e307f2d9', 'location': 'Raleigh, NC', 'distance_miles': 25, 'enabled': True},
+    {'id': '625eaae8-ed85-433b-82a4-c482ec5001a3', 'location': 'Denver, CO', 'distance_miles': 25, 'enabled': True},
+    {'id': 'ae467f93-9274-40f5-b3d0-1d0eed43a7db', 'location': 'Washington, DC', 'distance_miles': 25, 'enabled': True},
+    {'id': '538cd6ff-eed1-42f3-ba0d-6173289a3ce7', 'location': 'Pittsburgh, PA', 'distance_miles': 25, 'enabled': True},
+    {'id': 'dc106be3-24cb-4f58-b0d1-f74b34412564', 'location': 'Philadelphia, PA', 'distance_miles': 25, 'enabled': True},
+]
 DEFAULTS = {'retention_days': 14, 'auto_score_enabled': True, 'rubric': '', 'model': None,
-            'cities': [], 'country_indeed': 'usa', 'platforms': ['linkedin', 'indeed'],
+            'cities': DEFAULT_CITIES, 'country_indeed': 'usa', 'platforms': ['linkedin', 'indeed'],
             'rules': {'enabled_rule_ids': [], 'experience_max_years': 3, 'excluded_companies': [], 'qualifications': {}},
             'proxy': {'mode': 'off', 'url': None}}
 

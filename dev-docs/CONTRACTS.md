@@ -238,3 +238,8 @@ M3 审阅修正：`setModelKey` 拒绝空白或含 CR/LF 的输入，合法单�
 全 service 共用 LLM 线程池，并发 1、RPM 10、起始间隔至少 6 秒（空闲后不累积突发额度）。连接测试、首次评分、手动评分、每次重试均经过同一门；后续 M5 生成也必须使用该池。连接/读取超时 10/120 秒，读取超时不是总时限。最多 3 次尝试，基础退避 5/10 秒，Retry-After 秒数可延长等待且能取消；网络异常、408/429/5xx、无效文本或评分 JSON 可重试，401/403 和其他明确 HTTP 错误不重试。错误只包含受控消息/code/retryable，HTTP 错误另含 http_status，不持久化或回显 provider 响应/网络异常全文、认证头或秘密。截断、拒绝、空候选、畸形响应及非整数 0..10 / 非字符串 reason 都失败，不从 reasoning/thought 提取评分。
 
 fake LLM 仅 Python 测试依赖注入，支持成功（含 0 分）、无效输出、失败和延迟；四协议使用本地假 HTTP server 验证。未新增真实服务或模拟模式的产品开关。
+
+## M2 收尾：预置城市与规则统计（2026-10-19）
+
+- 未保存 cities 配置时返回用户指定的 19 个美国城市，顺序和半径固定、全部 enabled=true，预置 ID 跨读取/重启稳定。Philadelphia 按本轮约定为 25 miles。已保存的城市配置（包括空数组）不覆盖；settings.save 后继续按原有城市编辑契约处理。
+- RunSummary.stats、RunDetail.stats 与 run.stats 事件增加 filter_reasons（规则 ID → 数量），从本轮全部 retrieval 任务的当前统计求和，不受 tasks 分页影响。续跑替换任务统计后重新汇总，不累计旧尝试；历史运行尚无该字段时，list/detail 从仍保存的任务计数聚合。Runs 详情显示 Filtered by rule，无筛除时显示空状态，不保存被筛岗位正文。

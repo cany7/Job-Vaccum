@@ -163,6 +163,9 @@ class Runs:
     def summary(self, row):
         result = {k: row[k] for k in ('id', 'kind', 'status', 'created_at', 'started_at', 'finished_at')}
         stats = json.loads(row['stats_json'])
+        if 'filter_reasons' not in stats:
+            stats['filter_reasons'] = dict(self.db.execute(
+                "SELECT reason.key,sum(reason.value) FROM run_tasks t, json_each(t.stats_json,'$.filter_reasons') reason WHERE t.run_id=? AND t.kind='retrieval' GROUP BY reason.key", (row['id'],)))
         # Resolve display names without resurrecting deleted directions.
         stats['directions'] = [{**d, 'name': current[0]} for d in stats.get('directions', [])
                                if (current := self.db.execute('SELECT name FROM directions WHERE id=?', (d['direction_id'],)).fetchone())]
@@ -227,7 +230,7 @@ class Runs:
 
     def save_stats(self, identifier):
         stats = {kind: dict.fromkeys(('total', 'succeeded', 'failed', 'active', 'pending', 'cancelled'), 0) for kind in ('retrieval', 'scoring')}
-        stats.update(received_count=0, filtered_count=0, matched_job_count=0, new_job_count=0, directions=[])
+        stats.update(received_count=0, filtered_count=0, filter_reasons={}, matched_job_count=0, new_job_count=0, directions=[])
         directions = {}
         for row in self.db.execute('SELECT kind,status,stats_json,spec_json FROM run_tasks WHERE run_id=?', (identifier,)):
             kind, status, raw, spec = row
@@ -237,6 +240,8 @@ class Runs:
             if kind != 'retrieval':
                 continue
             task_stats, spec = json.loads(raw), json.loads(spec)
+            for reason, count in task_stats.get('filter_reasons', {}).items():
+                stats['filter_reasons'][reason] = stats['filter_reasons'].get(reason, 0) + count
             d = directions.setdefault(spec['direction_id'], {'direction_id': spec['direction_id'], 'received_count': 0, 'filtered_count': 0, 'ids': set()})
             for key in ('received_count', 'filtered_count'):
                 stats[key] += task_stats.get(key, 0)
