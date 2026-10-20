@@ -241,12 +241,10 @@ export function Detail(props: DetailProps) {
   );
 }
 
-/** First score and rescore share one action; a job already queued can't be sent again. */
+/** Active runs block scoring; a stopped run can leave jobs pending for a later attempt. */
 function ScoreButton({ job, blocked, onScore }: { job: JobDetail; blocked: string | null; onScore: DetailProps["onScore"] }) {
-  const queued = job.score_state === "pending" || job.score_state === "running";
-  const reason = queued ? "This job is already being scored." : blocked;
   return (
-    <button type="button" className="button" disabled={!!reason} onClick={() => onScore(job)} title={reason ?? "Score this job with your current model and rubric"}>
+    <button type="button" className="button" disabled={!!blocked} onClick={() => onScore(job)} title={blocked ?? "Score this job with your current model and rubric"}>
       {job.score != null ? "Rescore" : "Score"}
     </button>
   );

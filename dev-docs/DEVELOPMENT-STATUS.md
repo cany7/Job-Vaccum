@@ -1,6 +1,24 @@
 # 开发状态
 
-最新状态：2026-10-19 M3 前端（Settings › Model、评分模板、Score 菜单、详情评分、Runs 手动评分记录）已在 claude/dev-env 本地提交，未推送；本地开发版 179 后端、15 Node、25 E2E 全部通过。真实模型、安装包未验证。安装版分页重试遗留失败仍未定位，不宣称已修复。
+最新状态：2026-10-19 M3 前端已通过 PR #10 合入 main（18d548c）；随后审阅发现的详情评分按钮与连接测试结果失效问题已修复，用户授权提交、推送并按必需 CI 自动合并流程交付。本轮仅类型检查、构建和两项针对性 E2E，未重跑完整本地测试。真实模型、安装包未验证，安装版分页重试遗留失败仍暂缓。
+
+## M3 前端审阅修复（2026-10-19，Codex）
+
+- 从 origin/main 18d548c 同步到 codex/dev 后修改，无后端、协议、依赖或数据结构变更。
+- 详情 Score / Rescore 与工具栏共用实际运行及配置阻止条件。停止运行后，后端按既有契约保留的 pending 不再被误判为仍在评分；运行中仍禁止发起评分。
+- 模型表单修改、已保存 Key 替换或删除会使旧连接测试结果失效。在途测试保留等待/取消状态，但配置变化后其结果不再显示为当前配置的成功或失败；未变化配置的测试照常显示结果。
+- 两项回归使用合成岗位/Key 和受控本地 HTTP 响应，覆盖停止后 pending 岗位从详情重新评分、运行中按钮禁用、测试等待期间改模型、重新测试新模型、删除 Key 后清除成功提示。
+
+实际验证（沿用本机锁定环境）：
+
+| 命令／检查 | 结果 |
+| --- | --- |
+| desktop `npm run build` | TypeScript 检查及生产构建通过 |
+| desktop `npx --no-install playwright test tests/e2e/scoring-ui.spec.cjs --grep 'Model test results follow\|Stopped scoring leaves'` | 停止后评分用例通过（6.9 秒）；连接用例末尾等待成功提示失败，失败快照位于 Searches |
+| desktop `npx --no-install playwright test tests/e2e/scoring-ui.spec.cjs --grep 'Model test results follow' --trace on` | 1 passed（13.1 秒）；未改产品代码、放宽断言或增加自动重试，首轮切页原因未确认，不宣称已修复该偶发现象 |
+| 根目录 `git diff --check` | 通过 |
+
+未重跑完整后端、Node、E2E 套件，未打包、调用真实服务或处理此前暂停的安装版分页问题。远端结果以本次 PR/Actions 为准。
 
 ## M3 前端：模型连接、评分模板与手动评分（2026-10-19，Claude，本地提交未推送）
 
