@@ -41,7 +41,7 @@ function scoreLine(job: JobDetail) {
     case "succeeded":
       return `Scored ${when}`;
     case "failed":
-      return job.score != null ? `Scoring failed. The score shown is from ${when}.` : "Scoring failed";
+      return job.score != null ? `${job.score} · ${when}` : "Scoring failed";
   }
 }
 
@@ -189,8 +189,10 @@ export function Detail(props: DetailProps) {
                 </Fact>
               ) : null}
               {props.page === "shortlist" && job.application ? <NotesField job={job} onSave={props.onNotes} /> : null}
-              <Fact label="Score">{scoreLine(job)}</Fact>
-              {job.score_state === "failed" && job.last_score_error ? <Fact label="Last error">{job.last_score_error}</Fact> : null}
+              <Fact label="Score">
+                {scoreLine(job)}
+                {job.score_state === "failed" ? <div className="score-attempt-error">Last attempt failed{job.last_score_error ? ` · ${job.last_score_error}` : ""}</div> : null}
+              </Fact>
               {job.location ? <Fact label="Location">{job.location}</Fact> : null}
               {job.job_type ? <Fact label="Type">{jobTypeLabel(job.job_type)}</Fact> : null}
               <Fact label="Posted">

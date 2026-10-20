@@ -329,8 +329,10 @@ test('Score menu, details Score and scoring runs: selected, all matching, failur
     await expect(page.getByRole('menuitem', { name: 'Score selected (0)' })).toHaveAttribute('aria-disabled', 'true');
     await page.getByRole('menuitem', { name: 'Score all 30 matching…' }).click();
     const dialog = page.getByRole('dialog', { name: 'Score 30 jobs?' });
-    await expect(dialog).toContainText('synthetic');
-    await expect(dialog).toContainText('127.0.0.1');
+    await expect(dialog).toContainText('22 already scored will be rescored · 8 unscored');
+    await expect(dialog).toContainText('Every job in Jobs (30) is scored');
+    await expect(dialog).not.toContainText('synthetic');
+    await expect(dialog).not.toContainText('127.0.0.1');
     await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
     await dialog.getByRole('button', { name: 'Cancel' }).click();
     expect(model.calls).toHaveLength(0);
@@ -361,14 +363,16 @@ test('Score menu, details Score and scoring runs: selected, all matching, failur
     expect(score3.score).toBe(7);
     expect(score3.score_reason).toBe('Synthetic seven.');
 
-    // "1 failed" opens Jobs filtered to failed scoring; the old score stays with "!".
+    // "1 failed" opens Jobs filtered to failed scoring; the old score stays with an orange dot.
     await detail.getByRole('button', { name: '1 failed' }).click();
     await expect(view(page).locator('.chip-label')).toHaveText(['Score: Failed']);
     await expect(rows(page)).toHaveCount(1);
-    await expect(rows(page).first().locator('.score')).toHaveText('!');
+    await expect(rows(page).first().locator('.score')).toHaveText('2');
+    await expect(rows(page).first().locator('.score')).toHaveAttribute('data-retry-failed', 'true');
     await rows(page).first().click();
     const drawer = page.getByRole('complementary', { name: 'Job details' });
-    await expect(drawer).toContainText('Scoring failed. The score shown is from');
+    await expect(drawer).toContainText('Last attempt failed');
+    await expect(drawer).toContainText('fake-model');
     await expect(drawer).toContainText('HTTP 400');
     await view(page).locator('.chip-remove').click();
 

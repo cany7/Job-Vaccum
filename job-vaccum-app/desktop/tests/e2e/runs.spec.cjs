@@ -148,10 +148,10 @@ test('Runs: history, progress, per-search stats, batch filter and cleaned-up bat
     await expect(chips(page)).toHaveText([`Batch: ${labelB}`]);
     await expect(rows(page)).toHaveCount(3);
 
-    // Batch editor: All plus each run with its new count; several runs combine.
+    // Batch editor: no All option; several runs combine.
     await view(page).locator('.chip-label').click();
     const editor = page.getByRole('dialog', { name: 'Batch filter' });
-    await expect(editor.getByRole('checkbox', { name: 'All batches' })).not.toBeChecked();
+    await expect(editor.getByRole('checkbox', { name: 'All batches' })).toHaveCount(0);
     await editor.getByRole('checkbox', { name: `${labelA} · 5 new` }).check();
     await editor.getByRole('button', { name: 'Apply' }).click();
     await expect(chips(page)).toHaveText([`Batch: ${labelB}, ${labelA}`]);

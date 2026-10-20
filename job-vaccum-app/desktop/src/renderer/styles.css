@@ -1605,6 +1605,7 @@ th[aria-sort] .th-button {
 }
 
 .score {
+  position: relative;
   display: inline-grid;
   place-items: center;
   min-width: 22px;
@@ -2067,12 +2068,11 @@ th[aria-sort] .th-button {
 }
 
 .menu-item:focus {
-  color: var(--accent-text);
-  background: var(--accent);
+  background: var(--selected-row);
 }
 
 .menu-item:focus .status-dot {
-  box-shadow: 0 0 0 1.5px var(--accent-text);
+  box-shadow: 0 0 0 1.5px var(--card);
 }
 
 .menu-item[aria-disabled="true"] {
@@ -3341,3 +3341,32 @@ textarea.text-input {
     transform: none;
   }
 }
+
+/* Scoring states remain static while browsing. */
+.score[data-tone="pending"], .score[data-tone="running"] {
+  background: transparent;
+  border: 1.5px solid currentColor;
+}
+.score[data-tone="running"] { color: var(--run-running); }
+.score[data-retry-failed]::after {
+  content: "";
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--run-partial);
+  box-shadow: 0 0 0 1px var(--card);
+}
+.score-large[data-tone="pending"], .score-large[data-tone="running"] {
+  min-width: 20px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 50%;
+  margin-top: 3px;
+}
+.score-attempt-error { color: var(--score-failed-text); margin-top: 4px; }
+.score-filter-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
+.score-filter-tags .chip { height: auto; padding: 4px 8px; overflow-wrap: anywhere; }

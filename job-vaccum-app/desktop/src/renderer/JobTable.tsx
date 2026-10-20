@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from "react";
 import type { ApplicationStatus, JobSummary, Sort } from "./api";
 import { formatDay, formatPosted, jobTypeLabel, scoreChip, siteLabel, statusLabels, statuses } from "./format";
-import { CheckIcon, ChevronDown, ExternalIcon } from "./icons";
+import { CheckIcon, ChevronDown, ClockIcon, ExternalIcon } from "./icons";
 import { columns, MIN_COLUMN_WIDTH, type ColumnKey, type ListPage } from "./listModel";
 import { Menu } from "./ui";
 
@@ -10,8 +10,8 @@ const SELECT_WIDTH = 36;
 export function ScoreChip({ job, large }: { job: Pick<JobSummary, "score" | "score_state">; large?: boolean }) {
   const chip = scoreChip(job);
   return (
-    <span className={large ? "score score-large" : "score"} data-tone={chip.tone} title={chip.label} aria-label={chip.label}>
-      {chip.text}
+    <span className={large ? "score score-large" : "score"} data-tone={chip.tone} data-retry-failed={job.score_state === "failed" && job.score != null || undefined} title={chip.label} aria-label={chip.label}>
+      {job.score_state === "pending" ? <ClockIcon /> : chip.text}
     </span>
   );
 }
