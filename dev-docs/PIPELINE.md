@@ -112,8 +112,12 @@ HTTP 压力比率统计实际请求（包括底层已消化的 429），偶发�
 
 ## 8. 本地周期计划
 
-Electron main 负责时钟/唤醒触发，service 负责 schedule_firings 幂等记账与单轮互斥。保存星期、HH:mm、IANA 时区，用时区库计算下一次时刻，不用固定 UTC offset。
+Electron main 负责时钟/唤醒触发，service 负责 schedules、schedule_firings 幂等记账、单轮互斥和等待队列。最多 10 个计划，每个保存所选搜索、星期（空数组=只跑一次）、HH:mm、IANA 时区和开关；用时区库计算下一次时刻，不用固定 UTC offset。只跑一次的计划在该次触发记账后（无论开始、等待或未运行）自动关闭。
 
-启动/唤醒只为最后一个错过时刻补触发一次，不循环补所有历史。正在运行时记 skipped，不入队。修改计划从保存时刻向后计算，避免把新计划的过去时刻当错过任务。
+到点触发：空闲则立即开始运行（outcome=started）；已有运行则记 waiting，当前运行（含手动评分）结束后 service 按 scheduled_at 先后开始最早的 waiting，一次只开始一个。每个计划最多一个 waiting：再次到点时旧 waiting 改为 not_run（reason=waited_too_long），新触发继续等待。waiting 可取消（outcome=cancelled，不再显示）；用户停止当前运行不影响 waiting。service 启动时把残留 waiting 记为 not_run（reason=app_closed）。
 
-夏令时工程规则：不存在的本地时刻取当天跳时后的第一个有效时刻；重复时刻只触发第一次。schedule_id + scheduled_at 唯一约束阻止定时器重复触发。同一任务完全退出期间不承诺调度，重新打开可按最多一次补跑规则处理。
+不自动补跑。启动/唤醒时 main 为每个开启的计划计算自上次检查以来错过的时刻，只为最近一次记 not_run（reason=asleep 或 app_closed），并把同一计划之前未删除的 not_run 合并进 missed_count，不循环补跑或堆积多条。未运行由用户在界面手动 Run now 或删除；不为运行阻止系统休眠。修改计划从保存时刻向后计算，避免把新计划的过去时刻当错过任务。
+
+运行按所选搜索生成任务：只取这些方向下启用的 query × 启用城市 × 启用平台，快照记录所选方向 ID（null=全部）及触发来源；去重、批次和统计仍按岗位全局计算，不因所选搜索不同而分库。
+
+夏令时工程规则：不存在的本地时刻取当天跳时后的第一个有效时刻；重复时刻只触发第一次。schedule_id + scheduled_at 唯一约束阻止定时器重复触发。App 完全退出期间不调度，重新打开只按上面的规则记录未运行。
