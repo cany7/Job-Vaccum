@@ -20,13 +20,14 @@ JSON 数组适合保存来源展示信息、命中的 query，避免给每个附
 | queries | id PK、direction_id FK directions ON DELETE CASCADE、expression、enabled |
 | job_directions | job_id FK jobs ON DELETE CASCADE、direction_id FK directions ON DELETE CASCADE；PK(job_id,direction_id) |
 | applications | job_id PK/FK jobs ON DELETE CASCADE；status、notes、added_at、updated_at |
-| runs | id PK、kind（pipeline/rescore）、status、created_at/started_at/finished_at、config_snapshot_json、stats_json、error_json |
+| runs | id PK、kind（pipeline/rescore）、status、created_at/started_at/finished_at、config_snapshot_json（含所选方向 ID）、stats_json、error_json、trigger_json（source=manual/schedule、schedule_id、firing_id，可空） |
 | run_tasks | id PK、run_id FK runs ON DELETE CASCADE、kind、stable_order、spec_json、status、attempt_count、stats_json、error_json；UNIQUE(run_id,stable_order,kind) |
 | run_jobs | run_id FK runs ON DELETE CASCADE、job_id FK jobs ON DELETE CASCADE、is_new；PK(run_id,job_id) |
 | settings | key PK、value_json；正式配置和引导草稿分 key 存储，均无秘密 |
-| schedule_firings | schedule_id、scheduled_at、outcome、run_id 可空；UNIQUE(schedule_id,scheduled_at)；按 retention_days 清理 |
+| schedules | id PK、enabled、direction_ids_json（null=全部，否则非空数组）、time_local（HH:mm）、weekdays_json（空=只跑一次）、timezone（IANA）、created_at、updated_at；最多 10 行由 service 校验 |
+| schedule_firings | id PK、schedule_id FK schedules ON DELETE CASCADE、scheduled_at、outcome（started/waiting/not_run/cancelled）、reason（asleep/app_closed/waited_too_long，可空）、missed_count、run_id 可空；UNIQUE(schedule_id,scheduled_at)；按 retention_days 清理 |
 
-保留上述 11 张表（另有 schema_version），不合并 jobs 与 applications，不新增抓取检查点表。job_directions 和 run_jobs 是多对多关联表；job_identities 是一对多查重身份表。run_tasks 不保存抓取结果文件引用。抓取任务 stable_order 在运行开始时确定；评分任务按登记顺序分配并持久化，续跑不重新编号。
+保留上述 12 张表（另有 schema_version），不合并 jobs 与 applications，不新增抓取检查点表。job_directions 和 run_jobs 是多对多关联表；job_identities 是一对多查重身份表。run_tasks 不保存抓取结果文件引用。抓取任务 stable_order 在运行开始时确定；评分任务按登记顺序分配并持久化，续跑不重新编号。
 
 JobSpy 升级不新增表。job_url_direct 与 sources_json 中 direct_url 均允许为空；该基线的 LinkedIn 不提供外链时，使用 job_url 打开平台页面，不为缺失值建立 identity。抓取器输出按列名映射到业务字段：min_amount/max_amount → salary_min/salary_max；缺失值转 NULL，0 不作缺失。DataFrame 转换规则见 PIPELINE。任务的脱敏错误使用 error_json，warnings/缺 JD 计数等必要诊断随 stats_json 保存；不持久化原始 DataFrame.attrs 或完整响应。
 
@@ -110,6 +111,6 @@ CSV 包含评分时间、可用薪资单位、方向集合、来源集合、完�
 
 ## M2 落地约定（2026-10-19）
 
-迁移 003 增加 runs/run_tasks/run_jobs，既有 002 数据原地保留；schedule_firings 留 M7。任务 kind=retrieval/score，统计 JSON 不保存原始记录或 attrs。settings 各正式字段分别存 key，草稿使用 draft:search/rubric；普通代理认证仅运行时内存。M2 评分任务事务登记，但执行留 M3，存在 pending 评分的运行保持 running/scoring。
+迁移 003 增加 runs/run_tasks/run_jobs，既有 002 数据原地保留；schedule_firings 留 M7。2026-10-20 设计修正：runs.trigger_json 随 M2 Runs 修正迁移加入（旧运行为 null，按手动显示），schedules 与 schedule_firings 在 M7 迁移建立。任务 kind=retrieval/score，统计 JSON 不保存原始记录或 attrs。settings 各正式字段分别存 key，草稿使用 draft:search/rubric；普通代理认证仅运行时内存。M2 评分任务事务登记，但执行留 M3，存在 pending 评分的运行保持 running/scoring。
 
 M2 内容匹配使用现有 sources_json 中后来补入的有效 direct_url 参与不同外链边界判断，避免首个 LinkedIn 代表没有外链时误合并不同外部岗位；不回填或替换代表主字段。

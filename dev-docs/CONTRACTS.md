@@ -78,8 +78,8 @@ JobSummary：id、company、title、location、job_type、score 可空、score_r
 | applications.remove | job_ids[] | removed_count 及被移出记录的 job_id、status、notes、added_at、updated_at；仅移出清单 |
 | applications.restore | items[]（job_id、status、notes?、added_at?、updated_at，最多 200） | 每项 restored/not_found 及计数；单次短事务。清单中没有该岗位时按给定字段重新插入；已存在时只把 status、updated_at 改回给定值，不改 notes |
 | jobs.score | job_ids[]（去重后最多 200）或 filter（FilterSpec）二选一 | {run_id, job_count}；创建时解析并固定岗位集合，建立 kind=rescore 运行；无模型配置或评分模板返回 VALIDATION_ERROR，已有运行返回 BUSY；两个池子都可调用 |
-| runs.preview | 无 | 当前正式设置的任务数量、各平台目标和参数，不访问网络 |
-| runs.start | 无 | run_id；无有效配置或已有运行时失败 |
+| runs.preview | direction_ids?（省略或 null=全部） | 所选搜索的任务数量、各平台目标和参数，不访问网络 |
+| runs.start | direction_ids?、schedule_id?、firing_id? | run_id；无有效配置、所选搜索无可运行任务或已有运行时失败；记录触发来源 |
 | runs.resume | run_id | 同一 run_id；沿用快照，新增本次尝试预算 |
 | runs.stop | run_id | 请求停止，最终状态通过事件/查询获取 |
 | runs.list/detail | 分页、可选 kind / run_id | 状态、计数、任务诊断及 still-existing job 关系；list 返回 started_at 与 new_job_count（is_new=1 且岗位仍存在）供批次下拉 |
@@ -87,8 +87,11 @@ JobSummary：id、company、title、location、job_type、score 可空、score_r
 | export.csv | scope、filter、range=filtered/all、include_jd、destination_token | operation_id；一岗位一行 |
 | cleanup.preview | mode=manual/automatic | 将删岗位/运行数、保留清单数 |
 | cleanup.execute | mode=manual | 忙时 BUSY；完成返回删除数 |
-| schedule.get/save | 星期数组、本地 HH:mm、IANA 时区、enabled | 保存计划；不启动新运行 |
-| schedule.trigger | schedule_id、scheduled_at | 原子记账并尝试运行，忙时记 skipped |
+| schedules.list | 无 | 计划（含 next_at）及其 waiting／not_run／最近触发记录 |
+| schedules.save/delete | id?、enabled、direction_ids、time、weekdays、timezone；或 id | 新建或更新（最多 10 个）／删除计划；不启动运行，删除时一并删除其触发记录，不删运行 |
+| schedules.trigger | schedule_id、scheduled_at | main 专用；原子记账，空闲则开始运行，忙时记 waiting |
+| schedules.record_missed | schedule_id、scheduled_at、reason、missed_count | main 专用；记 not_run 并合并同计划旧记录 |
+| firings.cancel/delete | firing_id | 取消 waiting／删除 not_run |
 
 credentials.set/delete 是 Electron main 的本地方法，不写 SQLite；保存后通过私有控制消息更新 service 内存中的秘密。普通 settings.save 不能意外清除旧 Key。settings.get/save 包含 retention_days（非负整数，默认 14；0 关闭自动清理）；空值、负数及非整数返回 VALIDATION_ERROR。该值统一控制岗位、运行记录、计划触发记录和日志自动留存，下一次清理检查生效。菜单栏图标开关 show_menu_bar_icon（默认 true）保存在 Electron 本机 UI 偏好，由 main 读取，不经 service、不写 SQLite。各页筛选记忆、列宽、显示的列、侧边栏折叠状态、详情抽屉宽度以及外观模式、浅色主题和深色主题同样只存本机 UI 偏好，由前端读写，没有对应的 service 命令。单主窗口的配置保存按顺序发送，只更新本次编辑字段；不使用配置版本锁。设置页能先测试未保存输入，测试失败不丢失输入。
 
@@ -186,9 +189,9 @@ rubric draft 返回 Markdown 字符串。用户只粘贴简历文本及少量明
 - 默认运行参数固定：linkedin 10、indeed 100、hours_old 72、单抓取并发、600 秒整任务尝试超时、最多 3 次、退避 5/10 秒；不开放高级模式字段。snapshot 保存这些值及 jobspy_commit、正式配置、方向/query 和城市全部字段，不含 has_* 或秘密；启用的 query ID、城市 ID、平台名排序确定任务顺序。
 - rules：`{enabled_rule_ids:[],experience_max_years:3,excluded_companies:[],qualifications:{}}`。可选规则 ID 为 `test_jobs,senior_title,experience,authorization,language,graduation,degree`；空记录（缺标题或 JD）和明确兼职始终筛除，公司排除始终按规范化名称精确匹配。qualifications 可含 `requires_sponsorship:boolean,work_authorization:"opt"|"unrestricted",languages:string[],graduation_date:YYYY-MM-DD,degrees:string[]`，仅在明确条件与岗位明确要求冲突时过滤。专业排除本步不启用；不推断任何私人身份。经验只判明确 required/minimum/at least 或 N+ 年，不筛 preferred；学历 OR 分支按用户学历可满足的最小年数判。未核实的旧规则不声称兼容，原项目不可访问记录在 DEVELOPMENT-STATUS。
 - `drafts.get {draft_kind:"search"|"rubric"}` 返回 `{draft_kind,content:null|SearchDraft|string}`；`drafts.save {draft_kind,content}` 返回同结构；search content=`{directions:[{name,queries:[{expression,enabled}]}],cities:[{location,distance_miles,enabled}]}`，rubric 为 Markdown 字符串。验证后按 `draft:search` / `draft:rubric` 存 settings，不写正式配置。`drafts.apply {draft_kind}` 应用已存草稿，search 替换方向/query/城市并生成新稳定 ID，按删除方向语义去掉旧标签；rubric 只改模板，不开启评分。生成草稿留 M5。
-- `runs.preview {}` 返回 `{task_count,parameters,auto_score_enabled}`；parameters 是上述固定参数。`runs.start {}` 返回 `{run_id}`，立即返回后逐任务异步执行；无启用 query/城市/平台、普通代理缺地址或评分配置不全返回 VALIDATION_ERROR，已有活跃 run 返回 BUSY。
-- `runs.list {page?:1,page_size?:50(1..200),kind?:"pipeline"|"rescore"}` 返回 `{items:[RunSummary],total}`，默认仅 pipeline（供批次下拉，排除 rescore），created_at DESC,id ASC。RunSummary=`{id,kind,status,created_at,started_at,finished_at,new_job_count,stats,error,stage}`，new_job_count 仅计仍存在的 run_jobs.is_new=1；stats 持久化当时统计，不因清理回写。`stage` 动态推导 retrieving/scoring/cleaning，结束为 null。
-- `runs.detail {run_id,task_page?:1,task_page_size?:50(1..200)}` 返回 RunSummary 加 `{config_snapshot,tasks:[{id,kind,stable_order,spec,status,attempt_count,stats,error}],task_total,jobs:[{job_id,is_new}]}`；jobs 仅仍存在关系。task 列表分页，jobs 最多 200，完整结果用 jobs.list 的 run_ids 查询。stats=`{retrieval,scoring,received_count,filtered_count,matched_job_count,new_job_count,directions:[{direction_id,name,received_count,filtered_count,matched_job_count}]}`，任务计数各含 total/succeeded/failed/active/pending/cancelled。任务 stats 含 received_count、filtered_count、filter_reasons、matched_job_count、missing_jd_count、warnings、http_requests/http_429、identity_conflicts。
+- `runs.preview {direction_ids?}` 返回 `{task_count,parameters,auto_score_enabled}`；parameters 是上述固定参数。`runs.start {direction_ids?,schedule_id?,firing_id?}` 返回 `{run_id}`；direction_ids 省略或 null 为全部启用搜索；非空数组中未知/已删除 ID 忽略，空数组或剩余为空返回 VALIDATION_ERROR；快照保存所选方向，runs.trigger_json 记录 `{source:"manual"|"schedule",schedule_id?,firing_id?}`，立即返回后逐任务异步执行；无启用 query/城市/平台、普通代理缺地址或评分配置不全返回 VALIDATION_ERROR，已有活跃 run 返回 BUSY。
+- `runs.list {page?:1,page_size?:50(1..200),kind?:"pipeline"|"rescore"}` 返回 `{items:[RunSummary],total}`，默认仅 pipeline（供批次下拉，排除 rescore），created_at DESC,id ASC。RunSummary=`{id,kind,status,created_at,started_at,finished_at,new_job_count,stats,error,stage,searches,trigger}`，searches 为 null（全部）或快照中的 `[{id,name}]`，trigger 同 trigger_json，new_job_count 仅计仍存在的 run_jobs.is_new=1；stats 持久化当时统计，不因清理回写。`stage` 动态推导 retrieving/scoring/cleaning，结束为 null。
+- `runs.detail {run_id,task_page?:1,task_page_size?:50(1..200)}`（Runs 页不分页显示任务，前端取回全部页后在表内滚动） 返回 RunSummary 加 `{config_snapshot,tasks:[{id,kind,stable_order,spec,status,attempt_count,stats,error}],task_total,jobs:[{job_id,is_new}]}`；jobs 仅仍存在关系。task 列表分页，jobs 最多 200，完整结果用 jobs.list 的 run_ids 查询。stats=`{retrieval,scoring,received_count,filtered_count,matched_job_count,new_job_count,directions:[{direction_id,name,received_count,filtered_count,matched_job_count}]}`，任务计数各含 total/succeeded/failed/active/pending/cancelled。任务 stats 含 received_count、filtered_count、filter_reasons、matched_job_count、missing_jd_count、warnings、http_requests/http_429、identity_conflicts。
 - `runs.stop {run_id}` 返回 `{run_id}`，停止派发和退避，最多等抓取进程 10 秒再结束；未提交结果丢弃。`runs.resume {run_id}` 返回同 ID，仅允许 stopped/interrupted/partial/failed，成功任务不重做；原快照和任务 ID/order 不变，失败任务获得新的三次预算，统计替换、attempt_count 累计。M2 已登记评分任务保留 pending；开启评分且有新岗时 run 保持 running/scoring，实际评分执行随 M3 交付，不能写成成功。
 - 事件：`run.updated {run_id,status,stage}`、`run.stats {run_id,...stats}`，在 start/resume/stop、任务开始/提交、运行状态改变后发送；每次批次事务提交且存在岗位命中时发送 `jobs.changed {}`。UI 按事件重新查询，不解析日志；启动和恢复响应先于其事件。`app.status.active_run` 为 null 或 `{run_id,status,stage}`，configuration_complete 按当前正式配置能否 preview 判定。
 - `FilterSpec.run_ids` 空数组为 All；非空仅匹配 `run_jobs.is_new=1`，rescore ID 拒绝；已删除/未知运行 ID 返回空结果，前端通过 runs.list 清除失效条件。导出复用同一筛选。
@@ -197,6 +200,8 @@ rubric draft 返回 Markdown 字符串。用户只粘贴简历文本及少量明
 - fake scraper 仅通过 Python 测试依赖注入，覆盖成功/空/部分/失败/延迟，不增加 renderer 切换真实与模拟抓取的产品入口。
 
 M2 事件细化：`run.stats` 发送 run_id、retrieval、scoring 和四个全局业务计数，不携带方向数组；方向明细由收到事件后的 runs.detail/list 查询获取。这样事件大小不随方向数增长。任务 stats 的 matched_job_ids 仅保存去重后岗位 ID，供各方向唯一计数，不复制岗位内容。评分 spec 仅 `{job_id}`，评分输入从 jobs 主体及该 run 快照读取，不在任务内复制 JD。运行开始/续跑时解析普通代理凭据并只保存在当前运行内存，运行期间编辑代理设置/凭据只影响下一次 start/resume；续跑可使用同 endpoint 的修正凭据。
+
+运行计划（M7）：`schedules.list {}` 返回 `{items:[{id,enabled,direction_ids（null=全部）,time,weekdays,timezone,next_at}],firings:[{id,schedule_id,scheduled_at,outcome,reason,missed_count,run_id}]}`，firings 含全部 waiting、各计划最近一条 not_run 及每个计划最近 5 条 started。`schedules.save` 校验 HH:mm、weekdays 为 0–6 去重数组、direction_ids 为现有方向、总数不超过 10，超出返回 VALIDATION_ERROR；附近有其他计划只在界面提示，不拒绝。只跑一次的计划被触发后由 service 设 enabled=false。删除方向时从各计划移除该 ID，计划无剩余方向则设 enabled=false。等待开始、取消、未运行记录和计划变化时发送 `schedules.updated {}`，UI 收到后重新查询。
 
 任务重跑的 received/filtered/matched 等本次聚合计数替换旧值；matched_job_ids 表示该任务历次已提交的命中关系并取并集，用于不丢失部分失败后已入库的方向命中。停止时未提交的内存结果丢弃，保留该任务此前已提交统计/命中关系。
 
