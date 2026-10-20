@@ -2,12 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type
 import { call, type ApiResult, type AppInfo, type ConnectionState, type JobVaccumApi, type ServiceEvent } from "./api";
 import { AppContext, type AppContextValue, type Catalog, type OperationResult, type Page, type RunsState, type SettingsSection } from "./context";
 import { BackendStopped, StartupFailure } from "./Failure";
-import { formatRunTime, runStageLabels, runStatusLabels } from "./format";
+import { formatRunTime, type RunTone } from "./format";
 import { JobsIcon, RunsIcon, SearchesIcon, SearchIcon, SettingsIcon, ShortlistIcon, SidebarIcon } from "./icons";
 import type { ListFilter, ListPage } from "./listModel";
 import { ListView, type TopbarSlots } from "./ListView";
 import { updateList, useNarrow, usePrefs, type UiPrefs, type UpdatePrefs } from "./prefs";
-import { Runs } from "./Runs";
+import { RunDot, Runs } from "./Runs";
 import { Settings } from "./Settings";
 import { ToastProvider, useToast } from "./toasts";
 import { Menu, Popover } from "./ui";
@@ -358,8 +358,8 @@ function Shell({
             </button>
           </div>
           <h1 className="page-title">{pageNames[page]}</h1>
-          <span className="page-subtitle" ref={subtitleRef} hidden={page === "settings" || !ready || stopped !== null} />
-          <div className="topbar-actions" ref={actionsRef} hidden={page === "settings" || stopped !== null} />
+          <span className="page-subtitle" ref={subtitleRef} hidden={page === "settings" || page === "runs" || !ready || stopped !== null} />
+          <div className="topbar-actions" ref={actionsRef} hidden={page === "settings" || page === "runs" || stopped !== null} />
         </header>
         <Sidebar
           collapsed={collapsed}
@@ -403,7 +403,7 @@ function Shell({
                   <p className="muted">Starting Job Vaccum…</p>
                 </div>
               ) : null}
-              {ready && page === "runs" ? <Runs slots={slots} focus={runFocus} /> : null}
+              {ready && page === "runs" ? <Runs focus={runFocus} /> : null}
               {page === "settings" ? (
                 <Settings
                   api={api}
@@ -423,27 +423,33 @@ function Shell({
   );
 }
 
-function statusOf(connection: ConnectionState | null) {
+/**
+ * The one sidebar status line (SPEC): backend problem > active run > Next run
+ * (schedules, M7) > Last run. A healthy backend is not mentioned.
+ */
+function statusLine(connection: ConnectionState | null, runs: RunsState): { tone: RunTone | "error"; text: string } {
   switch (connection?.phase) {
     case "ready":
-      return { tone: "ok", text: "Backend ready" };
+      break;
     case "exited":
       return { tone: "error", text: "Backend stopped" };
     case "failed":
       return { tone: "error", text: "Backend failed" };
     default:
-      return { tone: "pending", text: "Starting backend…" };
+      return { tone: "idle", text: "Starting backend…" };
   }
-}
-
-/** Run line under the connection status: the active run, else when the last run started. */
-function runText(runs: RunsState) {
-  if (runs.active) {
-    const stage = runs.active.stage ? ` · ${runStageLabels[runs.active.stage]}` : "";
-    return runs.active.status === "stopping" ? "Stopping run…" : `Run in progress${stage}`;
+  const active = runs.active;
+  if (active) {
+    if (active.status === "stopping") return { tone: "idle", text: "Stopping…" };
+    const run = [...runs.items, ...runs.rescores].find((item) => item.id === active.run_id);
+    if (!run) return { tone: "running", text: "Running" };
+    const scoring = run.kind === "rescore" || active.stage !== "retrieving";
+    const counts = scoring ? run.stats.scoring : run.stats.retrieval;
+    const done = counts.succeeded + counts.failed + counts.cancelled;
+    return { tone: "running", text: scoring ? `Running · scoring ${done}/${counts.total}` : `Running · ${done}/${counts.total} tasks` };
   }
-  const last = runs.items[0];
-  return last ? `Last run ${formatRunTime(last.started_at)} · ${runStatusLabels[last.status]}` : null;
+  const last = [...runs.items, ...runs.rescores].sort((a, b) => b.created_at - a.created_at)[0];
+  return { tone: "idle", text: last ? `Last run ${formatRunTime(last.started_at)}` : runs.loaded ? "No runs yet" : "" };
 }
 
 function Sidebar(props: {
@@ -465,8 +471,7 @@ function Sidebar(props: {
   setRailSearch: (open: boolean) => void;
 }) {
   const { collapsed, page, catalog } = props;
-  const status = statusOf(props.connection);
-  const run = runText(props.runs);
+  const status = statusLine(props.connection, props.runs);
   const counts: Partial<Record<Page, number | null>> = { jobs: catalog.jobs, shortlist: catalog.shortlist };
   const searchButton = useRef<HTMLButtonElement>(null);
   const item = (id: Page, icon: ReactNode) => (
@@ -553,17 +558,21 @@ function Sidebar(props: {
       ) : null}
       <div className="sidebar-footer">
         <nav aria-label="Settings">{item("settings", <SettingsIcon />)}</nav>
-        <div
+        <button
+          type="button"
           className="sidebar-status"
-          data-tone={status.tone === "ok" && run ? "running" : status.tone}
-          title={collapsed ? (run ? `${status.text} · ${run}` : status.text) : undefined}
+          data-connection={props.connection?.phase ?? "starting"}
+          data-tone={status.tone === "error" ? "error" : undefined}
+          aria-label={collapsed ? `${status.text}. Open Runs` : undefined}
+          title={collapsed ? status.text : "Open Runs"}
+          disabled={!props.ready}
+          onClick={() => props.onNavigate("runs")}
         >
-          <span className="dot" aria-hidden="true" />
-          <span className={collapsed ? "visually-hidden" : undefined} role="status">
+          <RunDot tone={status.tone} />
+          <span className={collapsed ? "visually-hidden" : "sidebar-status-text"} role="status">
             {status.text}
           </span>
-        </div>
-        {!collapsed && props.ready && run ? <div className="sidebar-run">{run}</div> : null}
+        </button>
       </div>
     </aside>
   );

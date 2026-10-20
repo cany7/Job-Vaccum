@@ -254,3 +254,11 @@ fake LLM 仅 Python 测试依赖注入，支持成功（含 0 分）、无效输
 - 不新增命令、事件或 preload 方法。Settings 新增 Model 分区：settings.save 只提交 model 对象（空值为 null、仅当前协议相关字段非 null），Key 走 setModelKey/deleteModelKey；testModel 传入表单当前完整 model，等待 model.test.completed 或 operation.failed，离开分区时 cancelOperation。
 - 两页工具栏 Score 菜单与详情 Score 调用 scoreJobs：勾选为 job_ids，Score all 为当前 FilterSpec（含 sort，无分页），先显示当前 total 确认。缺 model、has_key=false、存在 model_key_error、rubric 为空或 app.status.active_run 非空时前端禁用并说明原因；服务端校验仍为准。
 - Runs 历史同时读取 runs.list 默认（pipeline）与 kind=rescore，各最多 200 条，按 created_at 合并；批次筛选只用 pipeline。保存 rubric 后自动评分关闭时由前端询问，再显式 settings.save {auto_score_enabled:true}。
+
+## M2 Runs 修正落地（2026-10-20）
+
+- 迁移 004 给 runs 增加可空 trigger_json；schema_version=4，protocol_version=1 不变。旧运行 trigger 为 null，界面按 Manual 显示。
+- runs.preview/start 接受 direction_ids（省略或 null=全部启用搜索；非数组返回 VALIDATION_ERROR；未知 ID 忽略，空数组或剩余为空返回 VALIDATION_ERROR；所选搜索没有启用 query 时返回 VALIDATION_ERROR）。快照写入 direction_ids（null 或所选 ID）；只为所选且启用的方向生成任务。
+- 本阶段 runs.start 与 jobs.score 都写 trigger_json `{source:"manual"}`；schedule_id/firing_id 参数及 source=schedule 随 M7 计划功能加入，当前传入会按未知字段拒绝。
+- RunSummary 增加 searches（null 或快照中的 `[{id,name}]`，名称取运行开始时的快照，方向删除后仍显示）与 trigger。preload 的 previewRun/startRun 接受可选 `{direction_ids}`。
+- Runs 页 runs.detail 以 task_page_size=200 逐页取回全部任务（评分运行只取 1 条，不显示任务表）。

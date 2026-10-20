@@ -1,6 +1,45 @@
 # 开发状态
 
-最新状态：2026-10-20 Runs 页与运行计划设计修正已写入文档，M2 Runs 修正待实现（见下节）。2026-10-19 M3 前端已通过 PR #10 合入 main（18d548c）；随后审阅发现的详情评分按钮与连接测试结果失效问题已修复，用户授权提交、推送并按必需 CI 自动合并流程交付。本轮仅类型检查、构建和两项针对性 E2E，未重跑完整本地测试。真实模型、安装包未验证，安装版分页重试遗留失败仍暂缓。
+最新状态：2026-10-20 M2 范围的 Runs 修正已实现并本地提交（claude/dev-env，未推送，见下节）；计划功能本体仍属 M7。2026-10-19 M3 前端已通过 PR #10 合入 main（18d548c），随后审阅修复经 PR #11 合入。真实模型、安装包未验证，安装版分页重试遗留失败仍暂缓。
+
+## M2 Runs 修正实现（2026-10-20，Claude，本地提交未推送）
+
+### 授权与范围
+
+用户授权 M2 范围的 Runs 修正（IMPLEMENTATION-PLAN M2 末项）；计划功能本体（schedules、到点触发、等待队列、未运行记录）属 M7，本次未做。读过 AGENTS、dev-docs/README、两个设计 skill（`.agents/skills/apple-design/SKILL.md`、`.agents/skills/emil-design-eng/SKILL.md`）、本文件上一节、SPEC v0.7「窗口布局与列表」「运行计划与进度」、CONTRACTS runs.* 与运行计划段、ACCEPTANCE R16/B13 及设计画布 Runs 页原型。工作区 `/Users/tim77/PycharmProjects/job-vaccum-gui-claude`（claude/dev-env worktree），从 origin/main 18ed54d 合并本地 codex/dev 的文档提交 f58ec32 后开始；依赖与 lockfile 未变，独立执行 `uv sync --locked`、`npm ci` 并从本机缓存安装 Electron 44.9.0 二进制。
+
+### 实际交付
+
+- 后端：迁移 004 给 runs 加可空 trigger_json（schema_version=4）。runs.preview/start 接受 direction_ids（null/省略=全部；未知 ID 忽略；空数组、剩余为空或所选搜索无启用 query 返回 VALIDATION_ERROR），只为所选且启用的方向生成任务，快照记录 direction_ids。runs.start 与 jobs.score 记 `{source:"manual"}`；schedule_id/firing_id 随 M7。RunSummary 返回 searches（快照名称，方向删除后仍显示）和 trigger。
+- 运行状态色（三主题共用，不用强调色）：Running 蓝、Completed 绿、Partly completed 橙（进度条失败段同色）、Failed 红、Stopping/Stopped/Interrupted/空闲灰、Waiting 类为灰空心圆（用于任务表的等待任务）。
+- Runs 页：顶栏只有页面名（无运行按钮、无计数、无 Next run 横幅）。左栏「Schedules +」→ 分隔线 → 历史卡片（第一行开始时间与新发现数／评分运行岗位数／运行中任务进度，第二行状态点、状态与所跑搜索，评分运行写 Scoring completed 等；无来源标签）。+ 打开「New run」面板：搜索标签多选（All searches 或具体搜索，已关闭的搜索不可选）、Run now、按所选搜索的任务计划摘要与 Edit searches。配置不全时左栏顶部一行「Can't run yet: add a query.」及设置链接，不显示错误码、不用红字，所有运行按钮禁用并在悬停说明原因。
+- 运行详情：标题为所跑搜索＋状态，副标题为来源（Manual／Scheduled，旧运行按 Manual）与起止时间；右上角运行中为 Stop（停止中为禁用的 Stopping…），结束后为 Run again（按该轮搜索、当前配置；运行中、配置不全或所选搜索已全部删除时禁用并说明）。统计卡 Matched 下小字「N seen before」（Matched − New）；Filtered out 的「By rule」打开纵向弹出卡片，列出本轮开启的规则（缺标题/描述与 Part-time 恒开，排除公司有名单时列出）及数量，Esc／点别处关闭并返回焦点。任务表逐页（200/页）取回全部任务，不分页、表内滚动、表头固定、每行单行截断，悬停看全文；表格占满详情剩余高度。评分运行详情保留 Jobs／Scored／Failed。
+- 侧边栏底部一行状态（可点击进入 Runs）：后台异常（红字）＞ Running · 3/8 tasks（评分阶段为 Running · scoring 2/4）＞ Stopping… ＞ Last run 10/19 21:29（无运行时 No runs yet）；不再显示 Backend ready 与第二行运行文字。窄条只显示同色圆点，悬停为该行文字。Next run 随 M7。
+- 全应用日期：`10/19 21:29`、表格／详情日期 `10/17`，非今年 `2025/12/03`；Jobs/Shortlist 表格、详情、Runs、批次选项与筛选标签、日期范围标签一致。
+- E2E 就绪信号由「Backend ready」文字改为 `.sidebar-status[data-connection=ready]`。
+
+### 实际命令与结果（macOS 27.0.1 arm64，Node 26.12.0，npm 11.20.0，Python 3.13.12，Electron 44.9.0）
+
+| 命令／检查 | 结果 |
+| --- | --- |
+| backend `uv run --locked pytest -q` | 181 passed，22.81 秒；新增所选搜索任务生成/快照/searches/trigger/全局去重与批次/删除后 VALIDATION_ERROR/评分运行 trigger，及 003→004 迁移保留旧运行（trigger null）；原 schema 断言改为 4 |
+| desktop `npm test` | 类型检查、构建通过，15 Node tests passed |
+| desktop `npx --no-install playwright test`（第一次完整运行） | 24 passed / 3 failed：desktop.spec 两项仍断言 schema 3 与旧「No runs yet」标题（随后修正）；lists.spec:549 请求失败用例超时 30 秒 |
+| desktop `npx --no-install playwright test tests/e2e/desktop.spec.cjs` | 11 passed |
+| desktop `npx --no-install playwright test tests/e2e/lists.spec.cjs:549 --trace on`；整份 lists.spec | 1 passed；7 passed。本轮未改 ListView/列表请求逻辑，完整运行中的超时原因未定位，不宣称已修复 |
+| desktop 最终完整 `npm run build && npx --no-install playwright test` | **27 passed，2.1 分钟**（含 lists.spec:549） |
+
+runs.spec 覆盖：三条历史（含 230 个任务的运行）卡片文字与状态色实测（橙 rgb(194,97,12)、绿 rgb(27,115,57)）、侧边栏一行状态与灰点、顶栏无运行按钮、标题/来源/起止时间、Run again 可用、Matched seen before、By rule 五条规则含 0 及 Esc 返回焦点、任务单元格 title、230 任务全部取回且表内滚动时表头和详情不动、每行 ≤34px、640×480 无页面溢出；New run 选 Software 后预览 1 task、Run now 防重复点击并以 `{direction_ids:[Software]}` 调用、运行中 + 面板 Run now 禁用及原因、Stop/Stopping…/Stopped、Run again 复用所选搜索；新安装左栏一行提示不含错误码并链接设置，评分配置提示链接 Filters & scoring。
+
+### 视觉检查（实际查看截图）
+
+临时脚本（已删除，不入库）生成并查看：1280×800 浅色/深色的部分完成详情、By rule 弹出、New run 面板、评分运行、配置不全、运行中（假 IPC）；640×480 浅色/深色详情、滚动后的任务表、New run、卡片键盘焦点环；Jobs 详情「found 10/20」与批次选项「10/19 23:12 · 0 new」。据此把任务表最小宽度与列宽收窄，使 1280 宽时 Notes 列可见（仍截断，悬停看全文）。新增界面无动画；reduced-motion 沿用既有按钮规则。
+
+### 未完成与限制
+
+- 计划（Schedules 列表、开关、时间/重复、Save、等待/未运行卡片、Next run 状态行、runs.start 的 schedule_id/firing_id）均属 M7，未实现；左栏 Schedules 区目前只有 +。
+- 未重新打包或验证安装副本；未运行真实网站抓取或真实模型。
+- 1280 宽时任务表 Notes 列较窄，长说明依赖悬停查看。
 
 ## Runs 页与运行计划设计修正（2026-10-20，Claude，仅文档）
 
@@ -11,7 +50,7 @@ M2/M3 界面评审后与用户确定，已同步 SPEC v0.7（窗口布局、运�
 - Runs 页：计划区（运行中/等待置顶，其余按时间早到晚）＋分隔线＋历史卡片；顶栏无运行按钮，Run now 在计划详情，Stop／Run again 在运行详情；状态色 Running 蓝、Completed 绿、Partly completed 橙、Failed 红、停止灰、等待/未运行灰空心圆；Matched 加「N seen before」，Filtered out 的 By rule 弹出逐条数量；任务表不分页、表内滚动；配置不全时左栏一行提示，不显示错误码。
 - 侧边栏底部一行状态（后台异常＞运行中＞停止中＞Next run＞Last run），不再显示 Backend ready；窄条圆点同色。
 - 全应用日期改为数字：MM/DD HH:MM、表格 MM/DD，非今年 YYYY/MM/DD。
-- 待做：M2 范围的 Runs 修正（见 IMPLEMENTATION-PLAN M2 末项）交给其他 Agent；计划功能本体随 M7。Jobs 评分与 Settings 新分区的评审意见尚未与用户逐条确认，未写入文档。
+- 待做：M2 范围的 Runs 修正已于同日实现（见上节）；计划功能本体随 M7。Jobs 评分与 Settings 新分区的评审意见尚未与用户逐条确认，未写入文档。
 
 ## M3 前端审阅修复（2026-10-19，Codex）
 

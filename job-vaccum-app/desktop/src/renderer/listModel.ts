@@ -1,5 +1,5 @@
 import type { ApplicationStatus, FilterSpec, ScoreState, Scope, Sort } from "./api";
-import { isoDay, jobTypeLabel, salaryIntervals, scoreStateLabels, scoreStates, siteLabel, statusLabels, statuses } from "./format";
+import { formatCalendarDay, isoDay, jobTypeLabel, salaryIntervals, scoreStateLabels, scoreStates, siteLabel, statusLabels, statuses } from "./format";
 
 export type ListPage = "jobs" | "shortlist";
 export const scopeOf = (page: ListPage): Scope => (page === "jobs" ? "discover" : "applications");
@@ -175,10 +175,7 @@ export { quickRanges };
 
 function rangeLabel(range: DateRange) {
   if ("days" in range) return quickRangeLabel(range.days);
-  const show = (day: string) => {
-    const [year, month, date] = day.split("-").map(Number);
-    return new Date(year, month - 1, date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: year === new Date().getFullYear() ? undefined : "numeric" });
-  };
+  const show = formatCalendarDay;
   if (range.from && range.to) return range.from === range.to ? show(range.from) : `${show(range.from)} – ${show(range.to)}`;
   if (range.from) return `since ${show(range.from)}`;
   return range.to ? `until ${show(range.to)}` : "";

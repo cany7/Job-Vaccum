@@ -58,7 +58,7 @@ test('shell, About with real backend, close/reopen, single instance and Quit', {
     });
     expect(options).toEqual({ size: [1280, 800], min: [640, 480], lights: { x: 18, y: 17 } });
 
-    await expect(page.getByRole('status')).toHaveText('Backend ready');
+    await expect(page.locator('.sidebar-status')).toHaveAttribute('data-connection', 'ready');
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Jobs');
     await expect(page.getByText('No jobs yet')).toBeVisible();
     await nav(page, 'Shortlist').click();
@@ -66,14 +66,14 @@ test('shell, About with real backend, close/reopen, single instance and Quit', {
     await expect(page.getByText('Your Shortlist is empty')).toBeVisible();
     await nav(page, 'Runs').click();
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Runs');
-    await expect(page.getByRole('heading', { name: 'No runs yet' })).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Run history' })).toHaveText('No runs yet.');
     expect(await page.locator('.topbar').evaluate(el => getComputedStyle(el).webkitAppRegion)).toBe('drag');
     expect(await page.getByRole('button', { name: 'Hide sidebar' }).evaluate(el => getComputedStyle(el).webkitAppRegion)).toBe('no-drag');
 
     await nav(page, 'Settings').click();
     await page.getByRole('button', { name: 'About' }).click();
     await expect(page.getByText('Ready · protocol v1')).toBeVisible();
-    await expect(page.getByText('Schema 3 · WAL', { exact: true })).toBeVisible();
+    await expect(page.getByText('Schema 4 · WAL', { exact: true })).toBeVisible();
     await expect(page.getByText(/^Version \d+\.\d+\.\d+ · macOS arm64$/)).toBeVisible();
     await expect(page.getByText(path.basename(dataDir), { exact: false })).toBeVisible();
     // Ping is a development-build diagnostic only.
@@ -83,7 +83,7 @@ test('shell, About with real backend, close/reopen, single instance and Quit', {
       await expect(page.getByText(/^Replied in \d+ ms/)).toBeVisible();
     }
     await page.getByRole('button', { name: 'Run diagnostics' }).click();
-    await expect(page.getByText('Read/write passed · schema 3 · WAL')).toBeVisible();
+    await expect(page.getByText('Read/write passed · schema 4 · WAL')).toBeVisible();
     await expect(page.getByText(packaged ? 'Bundled' : 'Development environment', { exact: true })).toBeVisible();
 
     expect(await page.evaluate(() => typeof window.require)).toBe('undefined');
@@ -112,7 +112,7 @@ test('shell, About with real backend, close/reopen, single instance and Quit', {
     const reopened = application.waitForEvent('window');
     await application.evaluate(({ app }) => app.emit('activate'));
     const newPage = await reopened;
-    await expect(newPage.getByRole('status')).toHaveText('Backend ready');
+    await expect(newPage.locator('.sidebar-status')).toHaveAttribute('data-connection', 'ready');
     expect(backendPid(application)).toBe(pid);
     expect(errors).toEqual([]);
     await quit(application);
@@ -125,7 +125,7 @@ test('sidebar collapse persists, narrow windows auto-collapse and restore', asyn
   let application = await launch(dataDir);
   try {
     let page = await application.firstWindow();
-    await expect(page.getByRole('status')).toHaveText('Backend ready');
+    await expect(page.locator('.sidebar-status')).toHaveAttribute('data-connection', 'ready');
     expect(await sidebarWidth(page)).toBe(200);
 
     // Narrow window collapses automatically and widening restores the expanded sidebar.
@@ -165,7 +165,7 @@ test('sidebar collapse persists, narrow windows auto-collapse and restore', asyn
 
     application = await launch(dataDir);
     page = await application.firstWindow();
-    await expect(page.getByRole('status')).toHaveText('Backend ready');
+    await expect(page.locator('.sidebar-status')).toHaveAttribute('data-connection', 'ready');
     expect(await sidebarWidth(page)).toBe(52);
     await page.getByRole('button', { name: 'Show sidebar' }).click();
     await expect.poll(() => sidebarWidth(page)).toBe(200);
@@ -173,7 +173,7 @@ test('sidebar collapse persists, narrow windows auto-collapse and restore', asyn
 
     application = await launch(dataDir);
     page = await application.firstWindow();
-    await expect(page.getByRole('status')).toHaveText('Backend ready');
+    await expect(page.locator('.sidebar-status')).toHaveAttribute('data-connection', 'ready');
     expect(await sidebarWidth(page)).toBe(200);
   } finally { if (application.ownedProcess.exitCode === null) await application.close(); }
 });
@@ -183,7 +183,7 @@ test('themes and modes switch immediately, stay independent and persist', async 
   let application = await launch(dataDir);
   try {
     let page = await application.firstWindow();
-    await expect(page.getByRole('status')).toHaveText('Backend ready');
+    await expect(page.locator('.sidebar-status')).toHaveAttribute('data-connection', 'ready');
     await page.emulateMedia({ colorScheme: 'light' });
     await nav(page, 'Settings').click();
     await page.getByRole('button', { name: 'Appearance' }).click();
@@ -227,7 +227,7 @@ test('themes and modes switch immediately, stay independent and persist', async 
 
     application = await launch(dataDir);
     page = await application.firstWindow();
-    await expect(page.getByRole('status')).toHaveText('Backend ready');
+    await expect(page.locator('.sidebar-status')).toHaveAttribute('data-connection', 'ready');
     await expect(page.locator('html')).toHaveAttribute('data-scheme', 'dark');
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'ink');
     await nav(page, 'Settings').click();
@@ -243,7 +243,7 @@ test('640 wide window, keyboard focus and reduced motion', async () => {
   const application = await launch(dataDir);
   try {
     const page = await application.firstWindow();
-    await expect(page.getByRole('status')).toHaveText('Backend ready');
+    await expect(page.locator('.sidebar-status')).toHaveAttribute('data-connection', 'ready');
     await resize(application, 640, 480);
     await expect.poll(() => sidebarWidth(page)).toBe(52);
     for (const name of ['Jobs', 'Shortlist', 'Settings']) {
@@ -252,7 +252,7 @@ test('640 wide window, keyboard focus and reduced motion', async () => {
     }
     await page.getByRole('button', { name: 'About' }).click();
     await page.getByRole('button', { name: 'Run diagnostics' }).click();
-    await expect(page.getByText('Read/write passed · schema 3 · WAL')).toBeVisible();
+    await expect(page.getByText('Read/write passed · schema 4 · WAL')).toBeVisible();
     expect(await noPageOverflow(page)).toBe(true);
     // Long values wrap inside the card instead of widening the page.
     expect(await page.locator('.card').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
@@ -317,7 +317,7 @@ test('backend crash blocks the shell and only offers Quit', { tag: '@smoke' }, a
   const application = await launch(dataDir);
   try {
     const page = await application.firstWindow();
-    await expect(page.getByRole('status')).toHaveText('Backend ready');
+    await expect(page.locator('.sidebar-status')).toHaveAttribute('data-connection', 'ready');
     process.kill(backendPid(application), 'SIGKILL');
     const dialog = page.getByRole('alertdialog');
     await expect(dialog).toContainText("Job Vaccum's backend stopped");
@@ -340,7 +340,7 @@ test('controlled starting, loading and request error states remain usable', asyn
   const application = await launch(dataDir);
   try {
     const page = await application.firstWindow();
-    await expect(page.getByRole('status')).toHaveText('Backend ready');
+    await expect(page.locator('.sidebar-status')).toHaveAttribute('data-connection', 'ready');
     await nav(page, 'Settings').click();
     await page.getByRole('button', { name: 'About' }).click();
     // Inject only at the Electron test boundary; no runtime test hooks ship in the app.
@@ -354,7 +354,7 @@ test('controlled starting, loading and request error states remain usable', asyn
     await application.evaluate(({ BrowserWindow }, state) => {
       BrowserWindow.getAllWindows()[0].webContents.send('app:connection-changed', state);
     }, connection);
-    await expect(page.getByRole('status')).toHaveText('Backend ready');
+    await expect(page.locator('.sidebar-status')).toHaveAttribute('data-connection', 'ready');
     await application.evaluate(({ ipcMain }) => {
       ipcMain.removeHandler('app:diagnostics');
       ipcMain.handle('app:diagnostics', () => new Promise(resolve => setTimeout(() => resolve({
@@ -379,7 +379,7 @@ test('M1 named bridge persists business data and exports through a main-owned de
   const application = await launch(dataDir);
   try {
     const page = await application.firstWindow();
-    await expect(page.getByRole('status')).toHaveText('Backend ready');
+    await expect(page.locator('.sidebar-status')).toHaveAttribute('data-connection', 'ready');
     const result = await page.evaluate(async () => {
       const api = window.jobVaccum;
       const imported = await api.importSyntheticJobs({ count: 125 });
@@ -457,7 +457,7 @@ test('M1 named bridge persists business data and exports through a main-owned de
   const restarted = await launch(dataDir);
   try {
     const page = await restarted.firstWindow();
-    await expect(page.getByRole('status')).toHaveText('Backend ready');
+    await expect(page.locator('.sidebar-status')).toHaveAttribute('data-connection', 'ready');
     const state = await page.evaluate(async () => ({
       settings: await window.jobVaccum.getSettings(),
       jobs: await window.jobVaccum.listJobs({}),
@@ -480,7 +480,7 @@ test('CSV resolved destinations cannot reach application data or be retargeted a
   const application = await launch(dataAlias);
   try {
     const page = await application.firstWindow();
-    await expect(page.getByRole('status')).toHaveText('Backend ready');
+    await expect(page.locator('.sidebar-status')).toHaveAttribute('data-connection', 'ready');
     await page.evaluate(() => window.jobVaccum.importSyntheticJobs({ count: 3 }));
     const database = path.join(dataDir, 'app.sqlite3');
     const fileAlias = path.join(outsideDir, 'export.csv');
@@ -521,7 +521,7 @@ test('oversized business responses keep the connection ready and preserve bulk U
   const application = await launch(await directory());
   try {
     const page = await application.firstWindow();
-    await expect(page.getByRole('status')).toHaveText('Backend ready');
+    await expect(page.locator('.sidebar-status')).toHaveAttribute('data-connection', 'ready');
     const result = await page.evaluate(async () => {
       const api = window.jobVaccum;
       await api.importSyntheticJobs({ count: 200 });
@@ -561,7 +561,7 @@ test('M2 named configuration and run queries use the real backend without scrapi
   const application = await launch(dataDir);
   try {
     const page = await application.firstWindow();
-    await expect(page.getByRole('status')).toHaveText('Backend ready');
+    await expect(page.locator('.sidebar-status')).toHaveAttribute('data-connection', 'ready');
     const result = await page.evaluate(async () => {
       const api = window.jobVaccum;
       const invalidStart = await api.startRun();
