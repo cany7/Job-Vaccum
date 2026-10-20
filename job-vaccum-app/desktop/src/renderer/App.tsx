@@ -4,7 +4,7 @@ import { AppContext, type AppContextValue, type Catalog, type OperationResult, t
 import { BackendStopped, StartupFailure } from "./Failure";
 import { formatRunTime, runStageLabels, runStatusLabels } from "./format";
 import { JobsIcon, RunsIcon, SearchesIcon, SearchIcon, SettingsIcon, ShortlistIcon, SidebarIcon } from "./icons";
-import type { ListPage } from "./listModel";
+import type { ListFilter, ListPage } from "./listModel";
 import { ListView, type TopbarSlots } from "./ListView";
 import { updateList, useNarrow, usePrefs, type UiPrefs, type UpdatePrefs } from "./prefs";
 import { Runs } from "./Runs";
@@ -98,21 +98,30 @@ function useCatalog(api: JobVaccumApi, ready: boolean) {
 
 const RUN_PAGE_SIZE = 200;
 
-/** Retrieval runs for Runs, batch filters and the sidebar; the active run comes from app.status. */
+/**
+ * Retrieval runs for Runs, batch filters and the sidebar, plus manual scoring
+ * runs for Runs; the active run comes from app.status.
+ */
 function useRuns(api: JobVaccumApi, ready: boolean) {
-  const [runs, setRuns] = useState<RunsState>({ items: [], total: 0, active: null, loaded: false });
+  const [runs, setRuns] = useState<RunsState>({ items: [], total: 0, rescores: [], rescoreTotal: 0, active: null, loaded: false });
   const sequence = useRef(0);
   const refresh = useCallback(() => {
     if (!ready) return;
     const id = ++sequence.current;
-    void Promise.all([call(() => api.listRuns({ page_size: RUN_PAGE_SIZE })), call(() => api.getStatus())]).then(([list, status]) => {
+    void Promise.all([
+      call(() => api.listRuns({ page_size: RUN_PAGE_SIZE })),
+      call(() => api.listRuns({ page_size: RUN_PAGE_SIZE, kind: "rescore" })),
+      call(() => api.getStatus()),
+    ]).then(([list, rescores, status]) => {
       if (id !== sequence.current) return;
       setRuns((previous) => ({
         items: list.ok ? list.result.items : previous.items,
         total: list.ok ? list.result.total : previous.total,
+        rescores: rescores.ok ? rescores.result.items : previous.rescores,
+        rescoreTotal: rescores.ok ? rescores.result.total : previous.rescoreTotal,
         active: status.ok ? status.result.active_run : previous.active,
-        loaded: previous.loaded || list.ok,
-        error: list.ok ? undefined : list.error,
+        loaded: previous.loaded || (list.ok && rescores.ok),
+        error: !list.ok ? list.error : !rescores.ok ? rescores.error : undefined,
       }));
     });
   }, [api, ready]);
@@ -135,6 +144,8 @@ function Shell({
 }) {
   const toast = useToast();
   const [page, setPage] = useState<Page>("jobs");
+  // Runs selects this run once; later choices in its history win.
+  const [runFocus, setRunFocus] = useState<{ id: string } | null>(null);
   const [section, setSection] = useState<SettingsSection>("searches");
   const [lastList, setLastList] = useState<ListPage>("jobs");
   const narrow = useNarrow();
@@ -169,9 +180,13 @@ function Shell({
         } else if (event.name === "run.updated" || event.name === "run.stats" || event.name === "cleanup.completed") {
           refreshRuns();
           setRunVersion((value) => value + 1);
-        } else if (event.name === "operation.completed" || event.name === "operation.failed") {
+        } else if (event.name === "operation.completed" || event.name === "model.test.completed" || event.name === "operation.failed") {
           const result: OperationResult =
-            event.name === "operation.completed" ? { ok: true, row_count: event.data.row_count } : { ok: false, error: event.data.error };
+            event.name === "operation.completed"
+              ? { ok: true, row_count: event.data.row_count }
+              : event.name === "model.test.completed"
+                ? { ok: true }
+                : { ok: false, error: event.data.error };
           const resolve = waiting.current.get(event.data.operation_id);
           if (resolve) {
             waiting.current.delete(event.data.operation_id);
@@ -187,12 +202,19 @@ function Shell({
     if (next === "jobs" || next === "shortlist") setLastList(next);
     if (nextSection) setSection(nextSection);
   }, []);
-  const openBatch = useCallback(
-    (runId: string) => {
-      updateList(updatePrefs, "jobs", { filter: { run_ids: [runId] } });
+  const openJobs = useCallback(
+    (filter: ListFilter) => {
+      updateList(updatePrefs, "jobs", { filter });
       navigate("jobs");
     },
     [updatePrefs, navigate],
+  );
+  const openRun = useCallback(
+    (runId: string) => {
+      setRunFocus({ id: runId });
+      navigate("runs");
+    },
+    [navigate],
   );
 
   const context = useMemo<AppContextValue>(
@@ -222,10 +244,11 @@ function Shell({
         return new Promise((resolve) => waiting.current.set(operationId, resolve));
       },
       navigate,
-      openBatch,
+      openJobs,
+      openRun,
       narrow,
     }),
-    [api, catalog, refreshCatalog, runs, refreshRuns, runVersion, dataVersion, outsideChanges, navigate, openBatch, narrow],
+    [api, catalog, refreshCatalog, runs, refreshRuns, runVersion, dataVersion, outsideChanges, navigate, openJobs, openRun, narrow],
   );
 
   // Filters on a search that no longer exists are dropped, with a note.
@@ -380,7 +403,7 @@ function Shell({
                   <p className="muted">Starting Job Vaccum…</p>
                 </div>
               ) : null}
-              {ready && page === "runs" ? <Runs slots={slots} /> : null}
+              {ready && page === "runs" ? <Runs slots={slots} focus={runFocus} /> : null}
               {page === "settings" ? (
                 <Settings
                   api={api}

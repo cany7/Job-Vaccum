@@ -65,6 +65,9 @@ export interface DetailProps {
   onStatus: (job: JobDetail, status: ApplicationStatus) => void;
   onNotes: (job: JobDetail, notes: string) => Promise<boolean>;
   onRemove: (job: JobDetail) => void;
+  /** Why Score is unavailable, or null. */
+  scoreBlocked: string | null;
+  onScore: (job: JobDetail) => void;
 }
 
 export function Detail(props: DetailProps) {
@@ -220,6 +223,7 @@ export function Detail(props: DetailProps) {
               <button type="button" className="button" disabled={!url} onClick={() => url && props.onOpenLink(url)} title="Open posting (O)">
                 Open posting <ExternalIcon />
               </button>
+              <ScoreButton job={job} blocked={props.scoreBlocked} onScore={props.onScore} />
               {props.page === "shortlist" && job.application ? (
                 <button type="button" className="button button-danger" onClick={() => props.onRemove(job)}>
                   Remove from Shortlist
@@ -234,6 +238,17 @@ export function Detail(props: DetailProps) {
         )}
       </div>
     </aside>
+  );
+}
+
+/** First score and rescore share one action; a job already queued can't be sent again. */
+function ScoreButton({ job, blocked, onScore }: { job: JobDetail; blocked: string | null; onScore: DetailProps["onScore"] }) {
+  const queued = job.score_state === "pending" || job.score_state === "running";
+  const reason = queued ? "This job is already being scored." : blocked;
+  return (
+    <button type="button" className="button" disabled={!!reason} onClick={() => onScore(job)} title={reason ?? "Score this job with your current model and rubric"}>
+      {job.score != null ? "Rescore" : "Score"}
+    </button>
   );
 }
 

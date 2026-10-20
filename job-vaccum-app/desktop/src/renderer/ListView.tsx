@@ -26,6 +26,7 @@ import {
   type ListPage,
   type ListPrefs,
 } from "./listModel";
+import { ScoreMenu, useScoreJobs } from "./scoring";
 import { useToast } from "./toasts";
 import { isTypingTarget, Menu, type MenuEntry } from "./ui";
 
@@ -160,6 +161,7 @@ export function ListView({
   }, [currentId, items]);
 
   // ---- Details ----
+  // The open job also reloads on outside changes (scoring results); that never reorders the list.
   const [detail, setDetail] = useState<{ job: JobDetail | null; error: ApiError | null; loading: boolean }>({ job: null, error: null, loading: false });
   const [detailReload, setDetailReload] = useState(0);
   const detailSequence = useRef(0);
@@ -171,7 +173,7 @@ export function ListView({
       if (id !== detailSequence.current) return;
       setDetail(response.ok ? { job: response.result, error: null, loading: false } : { job: null, error: response.error, loading: false });
     });
-  }, [api, detailOpen, currentId, dataVersion, detailReload]);
+  }, [api, detailOpen, currentId, dataVersion, outsideChanges, detailReload]);
 
   // ---- Position, selection and filters ----
   const clearSelection = () => {
@@ -351,7 +353,7 @@ export function ListView({
     setExporting(false);
     if (outcome.ok) {
       toast({
-        text: `Exported ${plural(outcome.row_count, "job")}`,
+        text: `Exported ${plural(outcome.row_count ?? 0, "job")}`,
         action: { label: "Show in Finder", run: () => void api.showCsvInFinder({ destination_token: token }) },
       });
     } else failed("Export didn't finish; the file may be incomplete.", outcome.error);
@@ -446,6 +448,12 @@ export function ListView({
           },
         ];
 
+  const filterSummary = keys.length ? keys.map((key) => chipLabel(key, prefs.filter, names)).join(" · ") : "No filters";
+  const scoring = useScoreJobs();
+  const scoreMenu = (
+    <ScoreMenu scoring={scoring} selected={selectedIds} matching={total} filter={{ ...spec, sort: prefs.sort }} summary={filterSummary} onStarted={clearSelection} />
+  );
+
   const subtitle = (() => {
     const ids = prefs.filter.direction_ids ?? [];
     const where = ids.length === 0 ? "All searches" : ids.length === 1 ? directionName(ids[0]) : `${ids.length} searches`;
@@ -456,6 +464,7 @@ export function ListView({
   const actions: ReactNode =
     page === "jobs" ? (
       <>
+        {scoreMenu}
         <button type="button" className="button" disabled={exporting} onClick={() => setDialog("export")} title={exporting ? "An export is in progress" : undefined}>
           Export
         </button>
@@ -481,6 +490,7 @@ export function ListView({
         >
           Set status <ChevronDown />
         </button>
+        {scoreMenu}
         <button type="button" className="button" disabled={exporting} onClick={() => setDialog("export")} title={exporting ? "An export is in progress" : undefined}>
           Export
         </button>
@@ -668,6 +678,8 @@ export function ListView({
             onStatus={(job, status) => void updateOne(job.id, { status })}
             onNotes={(job, notes) => updateOne(job.id, { notes })}
             onRemove={(job) => void remove([job.id])}
+            scoreBlocked={scoring.blocked}
+            onScore={(job) => void scoring.start({ job_ids: [job.id] })}
           />
         ) : null}
       </div>
@@ -773,7 +785,7 @@ export function ListView({
           page={page}
           filteredCount={total}
           allCount={scopeCount}
-          summary={keys.length ? keys.map((key) => chipLabel(key, prefs.filter, names)).join(" · ") : "No filters"}
+          summary={filterSummary}
           onCancel={() => setDialog(null)}
           onExport={startExport}
         />

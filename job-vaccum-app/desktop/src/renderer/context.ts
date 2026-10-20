@@ -1,9 +1,9 @@
 import { createContext, useContext } from "react";
 import type { ActiveRun, ApiError, ApiResult, Direction, JobVaccumApi, RunSummary, Settings } from "./api";
-import type { ListPage } from "./listModel";
+import type { ListFilter, ListPage } from "./listModel";
 
 export type Page = ListPage | "runs" | "settings";
-export type SettingsSection = "searches" | "filters" | "proxy" | "data" | "appearance" | "about";
+export type SettingsSection = "searches" | "filters" | "model" | "proxy" | "data" | "appearance" | "about";
 
 /** Searches and sidebar counts, reloaded whenever job data changes. */
 export interface Catalog {
@@ -21,12 +21,16 @@ export interface Catalog {
 export interface RunsState {
   items: RunSummary[];
   total: number;
+  /** Manual scoring runs (newest first, up to 200); listed in Runs only, never as batches. */
+  rescores: RunSummary[];
+  rescoreTotal: number;
   active: ActiveRun | null;
   loaded: boolean;
   error?: ApiError;
 }
 
-export type OperationResult = { ok: true; row_count: number } | { ok: false; error: ApiError };
+/** CSV exports report row_count; a model connection test only succeeds. */
+export type OperationResult = { ok: true; row_count?: number } | { ok: false; error: ApiError };
 
 export interface AppContextValue {
   api: JobVaccumApi;
@@ -47,8 +51,10 @@ export interface AppContextValue {
   outsideChanges: number;
   waitForOperation: (operationId: string) => Promise<OperationResult>;
   navigate: (page: Page, section?: SettingsSection) => void;
-  /** Shows Jobs filtered to the jobs first found by one run. */
-  openBatch: (runId: string) => void;
+  /** Shows Jobs with only this filter, e.g. the jobs first found by one run. */
+  openJobs: (filter: ListFilter) => void;
+  /** Shows one run in Runs. */
+  openRun: (runId: string) => void;
   narrow: boolean;
 }
 

@@ -328,6 +328,8 @@ dd {
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+  /* Page names are short; the subtitle gives way first. */
+  flex-shrink: 0;
 }
 
 .topbar-actions {
@@ -2857,6 +2859,82 @@ textarea.text-input {
   overflow-wrap: anywhere;
 }
 
+/* Settings › Model and the scoring rubric */
+.settings-content code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+}
+
+.subsection-title {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.protocol-select {
+  justify-self: start;
+}
+
+.param-input {
+  width: 7rem;
+}
+
+.mono-input {
+  font-family: var(--font-mono);
+}
+
+.endpoint-preview {
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
+.key-row {
+  flex-wrap: wrap;
+}
+
+.key-row .text-input {
+  flex: 1 1 14rem;
+}
+
+.key-error {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: var(--space-1);
+}
+
+.test-result {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+
+.rubric-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.rubric-input {
+  width: 100%;
+  min-height: 12rem;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.ask-box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+}
+
+.ask-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
 /* Narrow windows shorten top bar labels; details float over the table. */
 @media (max-width: 1099px) {
   .long-label {
@@ -2883,6 +2961,11 @@ textarea.text-input {
 
 /* Narrow windows */
 @media (max-width: 760px) {
+  /* The pager repeats the count; the top bar keeps room for the actions. */
+  .page-subtitle {
+    display: none;
+  }
+
   .settings {
     grid-template-columns: 136px minmax(0, 1fr);
   }

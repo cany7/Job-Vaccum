@@ -18,8 +18,9 @@ interface Preview {
 }
 
 const TASK_PAGE_SIZE = 50;
+const RUN_LIMIT = 200;
 
-export function Runs({ slots }: { slots: TopbarSlots }) {
+export function Runs({ slots, focus }: { slots: TopbarSlots; focus: { id: string } | null }) {
   const { api, catalog, runs, refreshRuns, runVersion, navigate } = useApp();
   const toast = useToast();
   const [preview, setPreview] = useState<{ data?: Preview; error?: ApiError }>({});
@@ -38,7 +39,15 @@ export function Runs({ slots }: { slots: TopbarSlots }) {
     };
   }, [api, catalog.settings, catalog.directions]);
 
-  const selected = runs.items.find((run) => run.id === selectedId) ?? runs.items[0] ?? null;
+  // Opening a run from elsewhere (a scoring toast) selects it once.
+  useEffect(() => {
+    if (focus) setSelectedId(focus.id);
+  }, [focus]);
+
+  // Search runs and manual scoring runs share one history, newest first.
+  const history = [...runs.items, ...runs.rescores].sort((a, b) => b.created_at - a.created_at || a.id.localeCompare(b.id));
+  const truncated = runs.total > runs.items.length || runs.rescoreTotal > runs.rescores.length;
+  const selected = history.find((run) => run.id === selectedId) ?? history[0] ?? null;
   const active = runs.active;
 
   const start = async () => {
@@ -75,7 +84,7 @@ export function Runs({ slots }: { slots: TopbarSlots }) {
       </button>
     </>
   );
-  const subtitle = runs.loaded ? plural(runs.total, "run") : "";
+  const subtitle = runs.loaded ? plural(runs.total + runs.rescoreTotal, "run") : "";
 
   return (
     <section className="runs-view" aria-label="Runs">
@@ -111,10 +120,10 @@ export function Runs({ slots }: { slots: TopbarSlots }) {
       ) : (
         <div className="runs-body">
           <nav className="run-list" aria-label="Run history">
-            {runs.items.map((run) => (
+            {history.map((run) => (
               <RunItem key={run.id} run={run} current={run.id === selected.id} onSelect={() => setSelectedId(run.id)} />
             ))}
-            {runs.total > runs.items.length ? <p className="muted small run-list-note">Showing the newest {runs.items.length} runs.</p> : null}
+            {truncated ? <p className="muted small run-list-note">Showing the newest {RUN_LIMIT} search runs and {RUN_LIMIT} scoring runs.</p> : null}
           </nav>
           <RunDetailView key={selected.id} summary={selected} version={runVersion} />
         </div>
@@ -127,8 +136,17 @@ export function Runs({ slots }: { slots: TopbarSlots }) {
 function RunPlan({ preview, onEdit }: { preview: { data?: Preview; error?: ApiError }; onEdit: (section: SettingsSection) => void }) {
   if (preview.error) {
     const { code, message } = preview.error;
-    const section: SettingsSection = code === "PROXY_ERROR" || /proxy/i.test(message) ? "proxy" : /scor/i.test(message) ? "filters" : "searches";
-    const label = { proxy: "Proxy settings", filters: "Filters & scoring", searches: "Edit searches" }[section as "proxy" | "filters" | "searches"];
+    const section: SettingsSection =
+      code === "PROXY_ERROR" || /proxy/i.test(message)
+        ? "proxy"
+        : code === "AUTH_ERROR" || /api key/i.test(message)
+          ? "model"
+          : /scor|rubric/i.test(message)
+            ? "filters"
+            : "searches";
+    const label = { proxy: "Proxy settings", model: "Model settings", filters: "Filters & scoring", searches: "Edit searches" }[
+      section as "proxy" | "model" | "filters" | "searches"
+    ];
     return (
       <div className="run-plan" data-tone="error">
         <span>
@@ -172,9 +190,22 @@ function RunItem({ run, current, onSelect }: { run: RunSummary; current: boolean
       <span className="run-item-time">{formatRunTime(run.started_at)}</span>
       <span className="run-item-meta">
         <StatusLabel run={run} />
-        <span className="muted">{run.new_job_count.toLocaleString("en-US")} new</span>
+        <span className="muted">
+          {run.kind === "rescore" ? `Scoring · ${plural(run.stats.scoring.total, "job")}` : `${run.new_job_count.toLocaleString("en-US")} new`}
+        </span>
       </span>
     </button>
+  );
+}
+
+/** While stopping, model requests already sent finish first (their scores are kept). */
+function StoppingNote({ run }: { run: RunSummary }) {
+  if (run.status !== "stopping") return null;
+  const left = run.stats.retrieval.active + run.stats.scoring.active;
+  return (
+    <p className="run-plan" role="status">
+      Stopping — {left ? `waiting for ${plural(left, "task")} already in progress (${plural(run.stats.scoring.active, "model request")})` : "finishing up"}. Finished tasks are kept.
+    </p>
   );
 }
 
@@ -186,7 +217,7 @@ function duration(from: number, to: number) {
 }
 
 function RunDetailView({ summary, version }: { summary: RunSummary; version: number }) {
-  const { api, openBatch } = useApp();
+  const { api, openJobs } = useApp();
   const [taskPage, setTaskPage] = useState(1);
   const [state, setState] = useState<{ data?: RunDetail; error?: ApiError; loading: boolean }>({ loading: true });
   const [reload, setReload] = useState(0);
@@ -203,6 +234,7 @@ function RunDetailView({ summary, version }: { summary: RunSummary; version: num
   // The list summary updates with every run event; the detail adds the snapshot and tasks.
   const run = { ...state.data, ...summary };
   const stats = run.stats;
+  if (run.kind === "rescore") return <ScoringRunView run={run} error={state.error} loading={state.loading} onRetry={() => setReload((value) => value + 1)} />;
   const scoringOff = state.data ? !state.data.config_snapshot.auto_score_enabled : null;
   const retrievalTasks = (state.data?.tasks ?? []).filter((task): task is Extract<RunTask, { kind: "retrieval" }> => task.kind === "retrieval");
   const lastTaskPage = Math.max(1, Math.ceil(stats.retrieval.total / TASK_PAGE_SIZE));
@@ -216,6 +248,7 @@ function RunDetailView({ summary, version }: { summary: RunSummary; version: num
           {run.finished_at != null ? `Finished ${formatTime(run.finished_at)} · took ${duration(run.started_at, run.finished_at)}` : isActiveRun(run.status) ? "In progress" : ""}
         </p>
       </header>
+      <StoppingNote run={run} />
       {run.error ? <ErrorText error={run.error} block /> : null}
       {state.error ? (
         <div className="banner" role="alert">
@@ -250,7 +283,7 @@ function RunDetailView({ summary, version }: { summary: RunSummary; version: num
         </Total>
         <Total label="New jobs">
           {summary.new_job_count ? (
-            <button type="button" className="link-button" onClick={() => openBatch(summary.id)} title="Show the jobs first found by this run in Jobs">
+            <button type="button" className="link-button" onClick={() => openJobs({ run_ids: [summary.id] })} title="Show the jobs first found by this run in Jobs">
               {summary.new_job_count.toLocaleString("en-US")} new
             </button>
           ) : (
@@ -349,6 +382,57 @@ function RunDetailView({ summary, version }: { summary: RunSummary; version: num
           <p className="muted">No tasks.</p>
         )}
       </section>
+    </div>
+  );
+}
+
+/** A manual scoring run: one task per job, fixed when it started. */
+function ScoringRunView({ run, error, loading, onRetry }: { run: RunSummary; error?: ApiError; loading: boolean; onRetry: () => void }) {
+  const { openJobs } = useApp();
+  const counts = run.stats.scoring;
+  return (
+    <div className="run-detail" aria-label="Run details" role="region">
+      <header className="run-header">
+        <h2>{formatTime(run.started_at)}</h2>
+        <StatusLabel run={run} />
+        <p className="muted">
+          Manual scoring ·{" "}
+          {run.finished_at != null ? `finished ${formatTime(run.finished_at)} · took ${duration(run.started_at, run.finished_at)}` : isActiveRun(run.status) ? "in progress" : "not finished"}
+        </p>
+      </header>
+      <StoppingNote run={run} />
+      {run.error ? <ErrorText error={run.error} block /> : null}
+      {error ? (
+        <div className="banner" role="alert">
+          <AlertIcon />
+          <span className="banner-text">
+            Couldn't load this run. {error.message}
+            <span className="error-code"> {error.code}</span>
+          </span>
+          <button type="button" className="button" disabled={loading} onClick={onRetry}>
+            Try again
+          </button>
+        </div>
+      ) : null}
+      <div className="run-progress">
+        <Progress label="Scoring" counts={counts} />
+      </div>
+      <dl className="run-totals">
+        <Total label="Jobs" hint="Fixed when scoring started">
+          {counts.total.toLocaleString("en-US")}
+        </Total>
+        <Total label="Scored">{counts.succeeded.toLocaleString("en-US")}</Total>
+        <Total label="Failed" hint="Failed jobs keep their earlier score">
+          {counts.failed ? (
+            <button type="button" className="link-button" onClick={() => openJobs({ score_states: ["failed"] })} title="Show jobs whose latest scoring failed in Jobs">
+              {counts.failed.toLocaleString("en-US")} failed
+            </button>
+          ) : (
+            "0"
+          )}
+        </Total>
+      </dl>
+      <p className="muted small">Scores replace earlier ones only when they succeed. A failed job keeps its earlier score and shows “!”.</p>
     </div>
   );
 }

@@ -243,3 +243,9 @@ fake LLM 仅 Python 测试依赖注入，支持成功（含 0 分）、无效输
 
 - 未保存 cities 配置时返回用户指定的 19 个美国城市，顺序和半径固定、全部 enabled=true，预置 ID 跨读取/重启稳定。Philadelphia 按本轮约定为 25 miles。已保存的城市配置（包括空数组）不覆盖；settings.save 后继续按原有城市编辑契约处理。
 - RunSummary.stats、RunDetail.stats 与 run.stats 事件增加 filter_reasons（规则 ID → 数量），从本轮全部 retrieval 任务的当前统计求和，不受 tasks 分页影响。续跑替换任务统计后重新汇总，不累计旧尝试；历史运行尚无该字段时，list/detail 从仍保存的任务计数聚合。Runs 详情显示 Filtered by rule，无筛除时显示空状态，不保存被筛岗位正文。
+
+## M3 renderer 接入（2026-10-19）
+
+- 不新增命令、事件或 preload 方法。Settings 新增 Model 分区：settings.save 只提交 model 对象（空值为 null、仅当前协议相关字段非 null），Key 走 setModelKey/deleteModelKey；testModel 传入表单当前完整 model，等待 model.test.completed 或 operation.failed，离开分区时 cancelOperation。
+- 两页工具栏 Score 菜单与详情 Score 调用 scoreJobs：勾选为 job_ids，Score all 为当前 FilterSpec（含 sort，无分页），先显示当前 total 确认。缺 model、has_key=false、存在 model_key_error、rubric 为空或 app.status.active_run 非空时前端禁用并说明原因；服务端校验仍为准。
+- Runs 历史同时读取 runs.list 默认（pipeline）与 kind=rescore，各最多 200 条，按 created_at 合并；批次筛选只用 pipeline。保存 rubric 后自动评分关闭时由前端询问，再显式 settings.save {auto_score_enabled:true}。

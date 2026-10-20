@@ -171,7 +171,8 @@ test('Runs: Run now and Stop follow run events; repeat clicks are blocked', asyn
         globalThis.fake.stopped = true;
         return { ok: true, result: { run_id: 'fake-run' } };
       });
-      ipcMain.handle('runs:list', () => ({ ok: true, result: globalThis.fake.run ? { items: [summary()], total: 1 } : { items: [], total: 0 } }));
+      ipcMain.handle('runs:list', (_event, params) => ({ ok: true,
+        result: globalThis.fake.run && params?.kind !== 'rescore' ? { items: [summary()], total: 1 } : { items: [], total: 0 } }));
       ipcMain.handle('runs:detail', () => ({ ok: true, result: { ...summary(), config_snapshot: { auto_score_enabled: false }, tasks: [], task_total: 2, jobs: [] } }));
       ipcMain.handle('app:status', () => ({ ok: true, result: { active_run: globalThis.fake.run && ['running', 'stopping'].includes(globalThis.fake.run.status)
         ? { run_id: 'fake-run', status: globalThis.fake.run.status, stage: globalThis.fake.run.stage } : null,
@@ -297,10 +298,10 @@ test('Settings: searches, queries, locations, scoring switch, filter rules and p
     await page.getByRole('checkbox', { name: /I need visa sponsorship/ }).check();
     await page.getByRole('combobox', { name: 'My work authorization' }).selectOption('opt');
     await page.getByRole('textbox', { name: 'My degrees' }).fill('Bachelor, Master');
-    await page.getByRole('button', { name: 'Save' }).click();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page.getByRole('alert').filter({ hasText: 'Enter whole years from 0 to 100.' })).toBeVisible();
     await page.getByRole('textbox', { name: 'Most years of required experience' }).fill('5');
-    await page.getByRole('button', { name: 'Save' }).click();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(toast(page).filter({ hasText: 'Filter rules saved' })).toBeVisible();
     expect((await settings()).rules).toEqual({
       enabled_rule_ids: ['experience', 'authorization'], experience_max_years: 5, excluded_companies: ['Acme', 'Globex'],
