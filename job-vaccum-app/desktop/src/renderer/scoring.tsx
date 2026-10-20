@@ -1,5 +1,6 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ActiveRun, FilterSpec, Settings, Sort } from "./api";
+import { call } from "./api";
 import { useApp } from "./context";
 import { plural } from "./format";
 import { ChevronDown } from "./icons";
@@ -15,15 +16,6 @@ export function scoringBlocker(settings: Settings | null, active: ActiveRun | nu
   if (!settings.rubric.trim()) return "Write a scoring rubric in Settings › Filters & scoring to score jobs.";
   if (active) return "A run is in progress. Score after it finishes.";
   return null;
-}
-
-/** Host of the model service, for saying where scoring sends jobs. */
-function serviceHost(settings: Settings | null) {
-  try {
-    return settings?.model ? new URL(settings.model.base_url).host : "";
-  } catch {
-    return "";
-  }
 }
 
 type ScoreParams = { job_ids: string[] } | { filter: FilterSpec & { sort?: Sort } };
@@ -53,7 +45,7 @@ export function useScoreJobs() {
     toast({ text: `Scoring ${plural(count, "job")}${changed}`, action: { label: "View progress", run: () => openRun(runId) } });
     return true;
   };
-  return { blocked, start, starting, model: catalog.settings?.model?.model_id ?? "", host: serviceHost(catalog.settings) };
+  return { blocked, start, starting };
 }
 
 /** Top bar Score ▾: the selected jobs, or every job matching the filters after a count confirmation. */
@@ -62,7 +54,8 @@ export function ScoreMenu({
   selected,
   matching,
   filter,
-  summary,
+  labels,
+  page,
   onStarted,
 }: {
   /** Shared with the details' Score button, so one start disables both. */
@@ -70,12 +63,13 @@ export function ScoreMenu({
   selected: string[];
   matching: number;
   filter: FilterSpec & { sort?: Sort };
-  summary: string;
+  labels: string[];
+  page: "jobs" | "shortlist";
   onStarted: () => void;
 }) {
   const button = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  const [confirming, setConfirming] = useState<number | null>(null);
+  const [confirming, setConfirming] = useState<{ filter: typeof filter; labels: string[] } | null>(null);
   const count = selected.length;
   return (
     <>
@@ -112,21 +106,20 @@ export function ScoreMenu({
               key: "all",
               label: `Score all ${matching.toLocaleString("en-US")} matching…`,
               disabled: !matching,
-              onSelect: () => setConfirming(matching),
+              onSelect: () => setConfirming({ filter, labels }),
             },
           ]}
         />
       ) : null}
       {confirming !== null ? (
         <ScoreAllDialog
-          count={confirming}
-          summary={summary}
-          model={scoring.model}
-          host={scoring.host}
+          filter={confirming.filter}
+          labels={confirming.labels}
+          page={page}
           busy={!!scoring.blocked}
           onCancel={() => setConfirming(null)}
-          onConfirm={async () => {
-            const started = await scoring.start({ filter }, confirming);
+          onConfirm={async (count) => {
+            const started = await scoring.start({ filter: confirming.filter }, count);
             setConfirming(null);
             if (started) onStarted();
           }}
@@ -138,46 +131,54 @@ export function ScoreMenu({
 
 /** Confirms how many jobs Score all sends to the model; Cancel has focus. */
 function ScoreAllDialog({
-  count,
-  summary,
-  model,
-  host,
-  busy,
-  onCancel,
-  onConfirm,
+  filter, labels, page, busy, onCancel, onConfirm,
 }: {
-  count: number;
-  summary: string;
-  model: string;
-  host: string;
+  filter: FilterSpec & { sort?: Sort };
+  labels: string[];
+  page: "jobs" | "shortlist";
   busy: boolean;
   onCancel: () => void;
-  onConfirm: () => void;
+  onConfirm: (count: number) => void;
 }) {
+  const { api } = useApp();
   const cancel = useRef<HTMLButtonElement>(null);
+  const [counts, setCounts] = useState<{ total: number; scored: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all([
+      call(() => api.listJobs({ ...filter, page: 1, page_size: 1 })),
+      // Keep any narrower score range in the confirmed filter.
+      call(() => api.listJobs({ ...filter, score_min: filter.score_min ?? 0, page: 1, page_size: 1 })),
+    ]).then(([all, scored]) => {
+      if (cancelled) return;
+      if (!all.ok) setError(all.error.message);
+      else if (!scored.ok) setError(scored.error.message);
+      else setCounts({ total: all.result.total, scored: scored.result.total });
+    });
+    return () => { cancelled = true; };
+  }, [api, filter]);
   return (
     <Dialog
-      title={`Score ${plural(count, "job")}?`}
+      title={counts ? `Score ${plural(counts.total, "job")}?` : "Score jobs?"}
       onCancel={onCancel}
       initialFocus={cancel}
       footer={
         <>
-          <button ref={cancel} type="button" className="button" onClick={onCancel}>
-            Cancel
-          </button>
-          <button type="button" className="button button-primary" disabled={busy} onClick={onConfirm}>
-            Score {plural(count, "job")}
+          <button ref={cancel} type="button" className="button" onClick={onCancel}>Cancel</button>
+          <button type="button" className="button button-primary" disabled={busy || !counts?.total || !!error} onClick={() => counts && onConfirm(counts.total)}>
+            {counts ? `Score ${plural(counts.total, "job")}` : "Score jobs"}
           </button>
         </>
       }
     >
-      <p>
-        Every job matching the current filters is scored, on all pages. Each job's title, company and description is sent with your rubric to{" "}
-        <strong>{model}</strong>
-        {host ? ` at ${host}` : ""}.
-      </p>
-      <p className="muted small">{summary}</p>
-      <p className="muted">A new score replaces the old one only if it succeeds. Progress shows in Runs.</p>
+      {error ? <p role="alert" className="field-error">Couldn't count matching jobs. {error}</p> : !counts ? <p role="status" className="muted">Counting matching jobs…</p> : <>
+        <p><strong>{counts.scored.toLocaleString("en-US")} already scored will be rescored</strong> · {(counts.total - counts.scored).toLocaleString("en-US")} unscored</p>
+        <p>{labels.length ? "Every job matching these filters is scored, on all pages." : `Every job in ${page === "jobs" ? "Jobs" : "Shortlist"} (${counts.total.toLocaleString("en-US")}) is scored.`}</p>
+        {labels.length ? <div className="score-filter-tags" aria-label="Filters">{labels.map(label => <span className="chip" key={label}>{label}</span>)}</div> : null}
+        <p className="muted">Each job's title, company and description is sent with your rubric to your model service.</p>
+        <p className="muted">A new score replaces the old one only if it succeeds. Progress shows in Runs.</p>
+      </>}
     </Dialog>
   );
 }

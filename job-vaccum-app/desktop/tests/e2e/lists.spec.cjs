@@ -645,8 +645,8 @@ test('main pages in each theme, light and dark, keep status and score colors rea
         await page.getByRole('radio', { name: scheme === 'light' ? 'Light' : 'Dark', exact: true }).check();
         await page.getByRole('radiogroup', { name: scheme === 'light' ? 'Light theme' : 'Dark theme' }).getByRole('radio', { name: theme }).check();
         await nav(page, 'Jobs').click();
-        await expect(row(page, title(5)).locator('.score')).toHaveText('!');
-        await expect(row(page, title(8)).locator('.score')).toHaveText('…');
+        await expect(row(page, title(5)).locator('.score')).toHaveText('5');
+        await expect(row(page, title(8)).locator('.score')).toHaveAttribute('data-tone', 'pending');
         for (const i of [1, 2, 3]) await row(page, title(i)).getByRole('checkbox').check();
         await row(page, title(2)).locator('.cell-company').click();
         await page.screenshot({ path: path.join(shots, `${scheme}-${theme}-jobs.png`) });

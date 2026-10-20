@@ -145,3 +145,10 @@ export const AlertIcon = () => (
     <path d="M8 11.4v0.1" strokeWidth="1.7" />
   </Icon>
 );
+
+export const ClockIcon = () => (
+  <Icon size={12}>
+    <circle cx="8" cy="8" r="5.5" />
+    <path d="M8 4.5V8l2.5 1.5" />
+  </Icon>
+);

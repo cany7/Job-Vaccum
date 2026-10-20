@@ -1,6 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 
+// Capture the opening input before React mounts a menu, including context menus.
+let keyboardInput = false;
+document.addEventListener("keydown", () => { keyboardInput = true; }, true);
+document.addEventListener("pointerdown", () => { keyboardInput = false; }, true);
+
 /** Typing targets and open overlays keep their own keys; list shortcuts ignore them. */
 export function isTypingTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
@@ -146,6 +151,11 @@ export function Menu({
   onPointerLeave?: () => void;
 }) {
   const list = useRef<HTMLDivElement>(null);
+  const focusFirst = useRef(initialFocus !== false && keyboardInput).current;
+  useEffect(() => {
+    // Mouse opening focuses the menu container, leaving every item unselected.
+    if (initialFocus !== false && (!focusFirst || !list.current?.querySelector("[role^='menuitem']:not([aria-disabled='true'])"))) list.current?.focus();
+  }, []);
   const onKeyDown = (event: KeyboardEvent) => {
     const items = [...(list.current?.querySelectorAll<HTMLElement>("[role^='menuitem']:not([aria-disabled='true'])") ?? [])];
     const index = items.indexOf(document.activeElement as HTMLElement);
@@ -168,11 +178,11 @@ export function Menu({
       role="menu"
       placement={placement}
       className={className ? `menu ${className}` : "menu"}
-      initialFocus={initialFocus}
+      initialFocus={focusFirst}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
     >
-      <div ref={list} onKeyDown={onKeyDown}>
+      <div ref={list} tabIndex={-1} onKeyDown={onKeyDown} style={{ outline: "none" }}>
         {entries.map((entry, index) =>
           entry === "separator" ? (
             <div key={`separator-${index}`} className="menu-separator" role="separator" />

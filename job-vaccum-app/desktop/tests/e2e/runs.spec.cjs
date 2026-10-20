@@ -96,8 +96,19 @@ test('Runs: history, progress, per-search stats, batch filter and cleaned-up bat
     await expect(detail(page)).toContainText('Auto-scoring was off for this run');
     const total = name => detail(page).locator('.run-totals > div').filter({ has: page.locator('dt', { hasText: name }) });
     await expect(total('Received').locator('dd')).toHaveText('14');
-    await expect(total('Filtered out').locator('dd')).toHaveText('3');
+    await expect(total('Filtered out').locator('dd').first()).toHaveText('3');
     await expect(total('Matched').locator('dd')).toHaveText(['4', '1 seen before']);
+    const ruleLine = await total('Filtered out').locator('.total-note').boundingBox();
+    const matchedLine = await total('Matched').locator('.total-note').boundingBox();
+    expect(Math.abs(ruleLine.y - matchedLine.y)).toBeLessThan(1);
+    const horizontal = await detail(page).locator('.run-tasks-scroll').evaluate(element => {
+      element.scrollLeft = element.scrollWidth;
+      return { overflow: element.scrollWidth > element.clientWidth, left: element.scrollLeft };
+    });
+    expect(horizontal.overflow).toBe(true);
+    expect(horizontal.left).toBeGreaterThan(0);
+    await page.screenshot({ path: path.join(dataDir, 'runs-notes-horizontal.png') });
+    await detail(page).locator('.run-tasks-scroll').evaluate(element => { element.scrollLeft = 0; });
     // By rule: every rule on for this run, including zero counts.
     await total('Filtered out').getByRole('button', { name: 'By rule' }).click();
     const byRule = page.getByRole('dialog', { name: 'Filtered out by rule' });
@@ -148,10 +159,10 @@ test('Runs: history, progress, per-search stats, batch filter and cleaned-up bat
     await expect(chips(page)).toHaveText([`Batch: ${labelB}`]);
     await expect(rows(page)).toHaveCount(3);
 
-    // Batch editor: All plus each run with its new count; several runs combine.
+    // Batch editor: no All option; several runs combine.
     await view(page).locator('.chip-label').click();
     const editor = page.getByRole('dialog', { name: 'Batch filter' });
-    await expect(editor.getByRole('checkbox', { name: 'All batches' })).not.toBeChecked();
+    await expect(editor.getByRole('checkbox', { name: 'All batches' })).toHaveCount(0);
     await editor.getByRole('checkbox', { name: `${labelA} · 5 new` }).check();
     await editor.getByRole('button', { name: 'Apply' }).click();
     await expect(chips(page)).toHaveText([`Batch: ${labelB}, ${labelA}`]);

@@ -238,7 +238,7 @@ function EditorBody({
   }
 }
 
-/** All, or one or more runs; each job belongs to the run that first found it. */
+/** Each job belongs to the run that first found it; removing the filter shows all. */
 function BatchBody({ runs, values, onChange }: { runs: RunsState; values: string[] | undefined; onChange: (values: string[]) => void }) {
   if (runs.error && !runs.items.length) return <p className="field-error">Couldn't load runs. {runs.error.message}</p>;
   if (!runs.loaded) return <p className="muted small">Loading runs…</p>;
@@ -247,10 +247,6 @@ function BatchBody({ runs, values, onChange }: { runs: RunsState; values: string
   const extra = (values ?? []).filter((id) => !listed.has(id));
   return (
     <>
-      <label className="check-row">
-        <input type="checkbox" className="checkbox" checked={!values?.length} onChange={() => onChange([])} />
-        <span className="check-label">All batches</span>
-      </label>
       {runs.items.length || extra.length ? (
         <div className="scroll-list">
           <Checks

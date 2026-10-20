@@ -218,7 +218,7 @@ AI 依据简历、已选条件和内置模板生成一份 Markdown 评分标准�
 
 - 公司、标题、地点、岗位类型、发布时间和可用薪资信息。
 - 完整 JD、来源平台和可用的岗位申请链接。
-- 评分、简短评分理由、评分时间，以及未评分或评分失败等明确状态；可显示使用的模型 ID。重评失败时 Score 行仍写旧分、其评分时间和模型 ID，下一行橙字「Last attempt failed」并给出原因；从未成功时写失败原因。详情标题旁的分数标记与列表一致，排队或评分中的标记不能做成像按钮的方块。
+- 评分、简短评分理由、评分时间，以及未评分或评分失败等明确状态；可显示使用的模型 ID。重评失败时 Score 行仍写旧分、其评分时间和模型 ID，下一行橙字「Last attempt failed」并给出原因；从未成功时写失败原因。详情标题旁的分数标记统一为矩形（包括排队和评分中），与右侧标题及公司地点区域垂直居中；标记无按钮交互。
 - 命中的多个方向和 query 来源。
 - 加入投递清单，或已加入后的状态与备注操作；两个页面均提供评分（已有分数时为重新评分）。
 
@@ -374,7 +374,7 @@ Runs 页布局：
 - 计划卡片：第一行为所选搜索名称和开关，第二行为时间 · 重复（或 Once）和下一次日期。运行中卡片：搜索名称和任务进度，蓝点 Running；等待卡片：搜索名称，Waiting · due 09:30。
 - 历史卡片：第一行为开始时间和新发现数（评分运行为岗位数），第二行为状态圆点、状态和所跑搜索（评分运行写 Scoring completed 等）；不加来源标签，来源（Scheduled／Manual）写在详情副标题。
 - 计划详情顺序：开关、搜索（标签多选）、时间、重复（星期标签，提示 No days = run once）；下方说明每轮会跑什么（任务数、各平台条数上限、发布时间范围、自动评分）并链接 Edit searches；再下为最近几次触发结果；底部为时区说明（Runs only while your Mac is awake and Job Vaccum is open or in the background）、Delete、Cancel、Save。
-- 运行详情：标题为所跑搜索和状态，副标题为来源与起止时间；运行中右上角为 Stop（停止中为禁用的 Stopping… 并显示仍在进行的任务和模型请求数），结束后为 Run again。统计卡片为 Received、Filtered out、Matched、New jobs：Matched 下以小字写「N seen before」（历史重复，即 Matched − New）；Filtered out 右上角「By rule」打开纵向小卡片，逐条列出各规则筛除数量，只列本轮开启的规则。其下为按搜索统计和任务表。任务表不分页，在表内滚动、表头固定，每行单行显示，长内容截断、悬停看全文；Notes 列由任务统计生成：No results、N without description、Rate limited N×、N warnings，失败时为原因与错误码。
+- 运行详情：标题为所跑搜索和状态，副标题为来源与起止时间；运行中右上角为 Stop（停止中为禁用的 Stopping… 并显示仍在进行的任务和模型请求数），结束后为 Run again。统计卡片为 Received、Filtered out、Matched、New jobs：Matched 下以小字写「N seen before」（历史重复，即 Matched − New）；Filtered out 数字下方左侧「By rule」（与 Matched 的 seen before 说明行对齐）打开纵向小卡片，逐条列出各规则筛除数量，只列本轮开启的规则。其下为按搜索统计和任务表。任务表不分页，列保留可读的最小宽度，在表内横向与纵向滚动、表头固定，每行单行显示，长内容截断、悬停看全文；Notes 列由任务统计生成：No results、N without description、Rate limited N×、N warnings，失败时为原因与错误码。
 - 配置不完整时左栏顶部提示一行（如「Can't run yet: add a query」）并链接到对应设置，不显示错误码、不用红字；所有运行按钮不可用。
 
 一轮 run 包含所选搜索中全部启用 query × 城市 × 平台任务；每个任务完成即处理入库。运行记录分别展示抓取和评分的任务进度、活跃数，以及新发现、历史重复、筛除、评分成功和评分失败等数量。区分正常零结果、访问失败、部分完成和用户停止。CSV 是按需操作，不是每轮完成的必要阶段。

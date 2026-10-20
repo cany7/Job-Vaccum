@@ -1,6 +1,48 @@
 # 开发状态
 
-最新状态：2026-10-20 M2 范围的 Runs 修正已实现并本地提交（claude/dev-env，未推送，见下节）；计划功能本体仍属 M7。2026-10-19 M3 前端已通过 PR #10 合入 main（18d548c），随后审阅修复经 PR #11 合入。真实模型、安装包未验证，安装版分页重试遗留失败仍暂缓。
+最新状态：2026-10-20 Jobs/Shortlist 评分与批次界面修正已实现并本地提交于 codex/dev，未推送（见下节）。M2 Runs 修正已通过 PR #13 合入 main（3a6816f）；运行计划本体仍属 M7。真实模型、安装包未补验，安装版分页重试遗留失败仍暂缓。
+
+
+## Jobs/Shortlist 与 Runs 修正交付前验证（2026-10-20，Codex）
+
+用户已授权 push、PR；按 AGENTS 流程开启必需检查通过后的自动合并。推送前 `git fetch origin && git merge origin/main` 已确认无需额外合并；desktop `npm test`（类型检查、构建、15 Node tests）及 `npx --no-install playwright test --grep @smoke`（6 passed，7.5 秒）通过，`git diff --check` 通过。交付包含 6d33c92、15b9c8f 的最终修改；前述“未推送”记录为当时状态，远端合并及主线 CI 结果以本次 PR/Actions 为准。
+
+## Runs 与评分标记试用反馈修正（2026-10-20，Codex）
+
+用户试用后明确要求三处调整，修改保留在 codex/dev；中断后确认工作区改动完整，再继续验证。沿用前次记录的本机环境及既有两个设计 skill。
+
+- Filtered out 的 By rule 移到数字下方左侧，与 Matched 的 seen before 同行；弹出规则明细和键盘焦点行为保持。
+- Tasks 最小宽度调为 1100px，Query/Location 保留可读列宽，剩余宽度留给 Notes；在自身容器中横向滚动，继续纵向滚动、固定表头、单行截断与悬停全文。Notes 按既有定义显示无结果、缺 JD 数、限流次数、警告数，以及失败原因/错误码，不是用户编辑的备注。
+- 详情标题旁所有评分标记统一矩形，包括排队与评分中；与右侧标题和公司地点区域垂直居中。移除上一轮的圆形特例，保留空心描边/小时钟/蓝色以及无动画。SPEC 同步用户最新决定。
+
+验证：desktop `npm run build` 通过；`npx --no-install playwright test tests/e2e/runs.spec.cjs tests/e2e/jobs-scoring-review.spec.cjs` 的 3 项 Runs/评分回归通过，涵盖 By rule 行位置、实际横向滚动距离、230 任务纵向滚动和固定表头、矩形尺寸及垂直居中、浅深色与 640×480。该次 Settings 用例输入 Master 得到 Maste 而失败；单独执行 `npx --no-install playwright test tests/e2e/runs.spec.cjs --grep 'Settings: searches'` 后 1 passed（10.3 秒），未改 Settings 或放宽断言，首次原因未定位。根目录 `git diff --check` 通过。实际查看 Runs 横向滚至 Notes 的截图，以及评分详情浅色 640×480、深色 1280×800 截图，布局符合本次要求。未修改后端、依赖或 Settings；未重新打包、调用真实服务。仅本地提交，不推送。
+
+## M3 Jobs/Shortlist 评分与批次界面修正（2026-10-20，Codex）
+
+用户授权仅此界面修正、本地 commit；开工执行 `git fetch origin && git merge origin/main`，codex/dev 已与最新主线 3a6816f 一致，工作区干净。阅读 AGENTS、README、两个设计 skill、指定 SPEC/CONTRACTS/M3/B08/B14 章节，以及浏览器中的「Jobs：批次筛选与评分」评审板。仅修改共用 renderer、相关 E2E 和本记录；后端、协议、依赖及 lockfile 未变。
+
+### 实际交付
+
+- 重评失败保留旧分色块（包括 0 分），右上角橙点；仅从未成功才显示橙色 `!`。详情 Score 行显示旧分、原评分时间和模型 ID，下一行橙字 `Last attempt failed` 与原因。排序/范围筛选仍使用已有旧分。
+- 排队为灰色空心描边色块与小时钟；评分中为蓝色空心描边色块。无动画；详情标题旁使用小圆形标记，避免像方形操作按钮。
+- Score all 打开时使用现有 `jobs.list` 查询总数及同筛选已有分数数（无最低分条件时加 `score_min:0`；已有更窄最低分时保留，避免扩大范围），未评分数为差值。确认框固定本次筛选、显示三个数量及条件标签，无筛选时写 `Every job in Jobs (N) is scored`（Shortlist 对应自身池子）；不显示模型 ID/主机。查询中或失败不能提交，Cancel 默认聚焦；创建时数量变化仍使用原有提示。
+- 共用菜单鼠标打开聚焦容器、不预选项目，键盘打开聚焦首个可用项；方向键、Esc、返回触发按钮继续有效，全部项禁用时仍可 Esc。高亮使用浅灰行底色及深色对应色，不再用主按钮强调底色。
+- 批次编辑器移除 All batches，已有 Remove filter 表示全部；多选、首次发现语义、失效批次清除不变。
+
+### 验证环境与实际结果
+
+macOS 27.0.1 arm64；Node 26.12.0、npm 11.20.0、Python 3.13.12、Electron 44.9.0；沿用本机既有独立依赖环境。全部岗位、Key、模型响应为合成测试数据。
+
+- desktop `npm test`：类型检查、生产构建、15 Node tests 通过。
+- desktop `npx --no-install playwright test tests/e2e/jobs-scoring-review.spec.cjs tests/e2e/scoring-ui.spec.cjs tests/e2e/lists.spec.cjs tests/e2e/runs.spec.cjs`：既有 15 项全部通过（列表、三主题浅深色、请求失败/空状态、批次、评分成功/失败/停止等）；新增用例因测试点击了 Shortlist 行内控件而未打开详情失败。改为点击分数单元格；此前一次新增用例将 `+ Filter` 错写成 `Add filter`，也已修正。
+- desktop `npx --no-install playwright test tests/e2e/jobs-scoring-review.spec.cjs`：新增 B14 用例通过。验证首次失败/旧分失败/0 分、排队/评分中、旧分排序和范围筛选、同筛选计数、Shortlist 计数、条件标签、模型/主机不展示、鼠标/键盘菜单、Cancel 焦点、计数加载/错误时不可提交、reduced-motion、窗口无整体溢出。相关 16 项 E2E 分批通过。
+- 根目录 `git diff --check`：通过。
+
+### 截图检查与限制
+
+实际运行 Electron 并查看 Graphite 浅色/深色、1280×800 与 640×480 截图：Jobs 失败详情、排队详情、Score 菜单、Score all 确认框，Shortlist 旧分 0 的失败详情。旧分、橙点、橙字原因清楚可见，空心标记可区分；窄窗详情内部滚动，确认按钮可见，页面无整体溢出。截图保存在本地忽略目录 `tmp/job-vaccum-app/M1 lists */jobs-review/`，不纳入产品或提交。
+
+未运行后端全套 pytest、完整 Desktop E2E 或重新打包；未调用真实模型/抓取服务。本轮未涉及 M4–M7、Settings 设计调整或此前暂停的安装版问题。按用户要求仅本地提交，推送/PR 等待另行确认。
 
 ## M2 Runs 静态审阅与交付前检查（2026-10-20，Codex）
 
@@ -58,7 +100,7 @@ M2/M3 界面评审后与用户确定，已同步 SPEC v0.7（窗口布局、运�
 - 侧边栏底部一行状态（后台异常＞运行中＞停止中＞Next run＞Last run），不再显示 Backend ready；窄条圆点同色。
 - 全应用日期改为数字：MM/DD HH:MM、表格 MM/DD，非今年 YYYY/MM/DD。
 - Jobs 评分与批次（画布「Jobs：批次筛选与评分」全部建议采纳）：重评失败仍显示旧分加橙色小点，只有从未成功才显示「!」，详情写旧分时间与「Last attempt failed」；排队/评分中改为空心描边标记；Score all 确认框写总数、将重评数和未评分数，不显示模型 ID 和服务主机（以后有多个命名模型配置时显示配置名称），无筛选时文案改为「Every job in Jobs (N) is scored」；菜单鼠标打开不预选、高亮改浅灰；批次编辑器去掉 All 项，移除筛选即全部。同步 SPEC、CONTRACTS、IMPLEMENTATION-PLAN（M3）、ACCEPTANCE B14。
-- 待做：M2 范围的 Runs 修正已于同日实现（见上节）；上面的 Jobs 修改尚未实现；计划功能本体随 M7。Settings 新分区的评审意见尚未与用户确认，未写入文档。
+- 待做：M2 范围的 Runs 修正已于同日实现（见上节）；上面的 Jobs 修改已于同日实现（见顶部 M3 修正记录）；计划功能本体随 M7。Settings 新分区的评审意见尚未与用户确认，未写入文档。
 
 ## M3 前端审阅修复（2026-10-19，Codex）
 

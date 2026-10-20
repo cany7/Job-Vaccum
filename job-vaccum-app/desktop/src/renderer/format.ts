@@ -111,18 +111,20 @@ export function formatSalary(salary: JobSummary["salary"]) {
 
 export const plural = (count: number, word: string, many = `${word}s`) => `${count.toLocaleString("en-US")} ${count === 1 ? word : many}`;
 
-export type ScoreTone = "high" | "mid" | "low" | "none" | "failed";
+export type ScoreTone = "high" | "mid" | "low" | "none" | "failed" | "pending" | "running";
 
 /** Chip text and color group for a score cell (SPEC: 8–10, 6–7, 0–5, —, !). */
 export function scoreChip(job: Pick<JobSummary, "score" | "score_state">): { text: string; tone: ScoreTone; label: string } {
   const previous = job.score != null ? ` · previous score ${job.score}` : "";
   switch (job.score_state) {
     case "failed":
-      return { text: "!", tone: "failed", label: `Scoring failed${previous}` };
+      return job.score == null
+        ? { text: "!", tone: "failed", label: "Scoring failed" }
+        : { text: String(job.score), tone: job.score >= 8 ? "high" : job.score >= 6 ? "mid" : "low", label: `Score ${job.score} of 10 · Last attempt failed` };
     case "pending":
-      return { text: "…", tone: "none", label: `Queued for scoring${previous}` };
+      return { text: "", tone: "pending", label: `Queued for scoring${previous}` };
     case "running":
-      return { text: "↻", tone: "none", label: `Scoring${previous}` };
+      return { text: "", tone: "running", label: `Scoring${previous}` };
     default:
       if (job.score == null) return { text: "—", tone: "none", label: "Not scored" };
       return {

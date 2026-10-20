@@ -451,7 +451,7 @@ export function ListView({
   const filterSummary = keys.length ? keys.map((key) => chipLabel(key, prefs.filter, names)).join(" · ") : "No filters";
   const scoring = useScoreJobs();
   const scoreMenu = (
-    <ScoreMenu scoring={scoring} selected={selectedIds} matching={total} filter={{ ...spec, sort: prefs.sort }} summary={filterSummary} onStarted={clearSelection} />
+    <ScoreMenu scoring={scoring} selected={selectedIds} matching={total} filter={{ ...spec, sort: prefs.sort }} labels={keys.map((key) => chipLabel(key, prefs.filter, names))} page={page} onStarted={clearSelection} />
   );
 
   const subtitle = (() => {
