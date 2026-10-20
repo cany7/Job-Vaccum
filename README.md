@@ -1,8 +1,15 @@
 # Job Vaccum
 
-A local desktop app for macOS on Apple Silicon. Browse and filter jobs, organize an application shortlist, and export it as CSV. Applications are submitted outside the app.
+A local desktop app for macOS on Apple Silicon that brings job search, review, and shortlisting into one place. Built with Electron, React, TypeScript, Python, and SQLite.
 
-The project is under development. Job lists, details, filtering and sorting, application statuses and notes, and a JobSpy search backend are available. The search interface, AI scoring, and scheduled runs are planned for later development. This is not yet a signed production release.
+Currently available:
+
+- Configure and run job searches through JobSpy, with rule-based filtering, deduplication, and run history.
+- Browse, filter, and sort jobs, and read full job descriptions.
+- Score jobs automatically or on demand using a configurable AI model and scoring rubric.
+- Maintain a shortlist with application statuses and notes, and export jobs as CSV.
+
+Under active development. Scheduled runs, AI-assisted setup, and advanced proxy support are still planned. This is not yet a signed production release. Applications are submitted outside the app.
 
 ## Technology and structure
 
@@ -22,4 +29,4 @@ npm ci
 npm run dev
 ```
 
-See the module READMEs for test and packaging commands. Automated tests use synthetic data by default and do not require website accounts or paid model services. Dependencies are pinned in the committed lockfiles. Development guidelines are in [AGENTS.md](AGENTS.md), and design documents and progress are in [dev-docs/README.md](dev-docs/README.md). Local design skills under `.agents/` must be prepared separately.
+See the module READMEs for test and packaging commands. Automated tests use synthetic data by default and do not require website accounts or paid model services. Dependencies are pinned in the committed lockfiles. Development guidelines are in [AGENTS.md](AGENTS.md), and design documents and progress are in [dev-docs/README.md](dev-docs/README.md).
