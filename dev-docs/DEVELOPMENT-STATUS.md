@@ -3,6 +3,12 @@
 最新状态：2026-10-20 Jobs/Shortlist 评分与批次界面修正已实现并本地提交于 codex/dev，未推送（见下节）。M2 Runs 修正已通过 PR #13 合入 main（3a6816f）；运行计划本体仍属 M7。真实模型、安装包未补验，安装版分页重试遗留失败仍暂缓。
 
 
+## 仓库首页简要更新（2026-10-20，Codex）
+
+按用户要求小幅更新英文 README，介绍已实现的检索、规则过滤与去重、运行历史、岗位浏览、自动/手动评分、Shortlist 与 CSV 导出；调度、AI 引导和高级代理继续标为计划功能，保留未签名发行说明。移除首页对本地 Agent skills 准备的要求，工程约定仍以 AGENTS 为准。未修改产品代码、依赖或仓库可见性。
+
+验证：人工核对 README 与当前实现及阶段记录，`git diff --check` 通过。纯文档修改，未重跑测试或打包；仅本地提交，不推送。
+
 ## Jobs/Shortlist 与 Runs 修正交付前验证（2026-10-20，Codex）
 
 用户已授权 push、PR；按 AGENTS 流程开启必需检查通过后的自动合并。推送前 `git fetch origin && git merge origin/main` 已确认无需额外合并；desktop `npm test`（类型检查、构建、15 Node tests）及 `npx --no-install playwright test --grep @smoke`（6 passed，7.5 秒）通过，`git diff --check` 通过。交付包含 6d33c92、15b9c8f 的最终修改；前述“未推送”记录为当时状态，远端合并及主线 CI 结果以本次 PR/Actions 为准。
