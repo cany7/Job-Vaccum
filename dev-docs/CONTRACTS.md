@@ -252,5 +252,5 @@ fake LLM 仅 Python 测试依赖注入，支持成功（含 0 分）、无效输
 ## M3 renderer 接入（2026-10-19）
 
 - 不新增命令、事件或 preload 方法。Settings 新增 Model 分区：settings.save 只提交 model 对象（空值为 null、仅当前协议相关字段非 null），Key 走 setModelKey/deleteModelKey；testModel 传入表单当前完整 model，等待 model.test.completed 或 operation.failed，离开分区时 cancelOperation。
-- 两页工具栏 Score 菜单与详情 Score 调用 scoreJobs：勾选为 job_ids，Score all 为当前 FilterSpec（含 sort，无分页），先显示当前 total 确认。缺 model、has_key=false、存在 model_key_error、rubric 为空或 app.status.active_run 非空时前端禁用并说明原因；服务端校验仍为准。
+- 两页工具栏 Score 菜单与详情 Score 调用 scoreJobs：勾选为 job_ids，Score all 为当前 FilterSpec（含 sort，无分页），先显示确认：总数为该 FilterSpec 的 jobs.list total，已有分数数为同一 FilterSpec 加 `score_min:0` 的 total（含重评失败保留旧分者），未评分数为二者之差；不新增命令。缺 model、has_key=false、存在 model_key_error、rubric 为空或 app.status.active_run 非空时前端禁用并说明原因；服务端校验仍为准。
 - Runs 历史同时读取 runs.list 默认（pipeline）与 kind=rescore，各最多 200 条，按 created_at 合并；批次筛选只用 pipeline。保存 rubric 后自动评分关闭时由前端询问，再显式 settings.save {auto_score_enabled:true}。
