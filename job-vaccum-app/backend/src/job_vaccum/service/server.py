@@ -282,7 +282,8 @@ def serve(root: Path, source: BinaryIO, destination: BinaryIO, *, clock=now_ms, 
                     response = {"type": "response", "id": request_id, "ok": False,
                                 "error": {"code": "INTERNAL_ERROR", "message": "Backend command failed.", "retryable": False}}
                 write(destination, response)
-                if succeeded and method in {"directions.delete", "cleanup.execute"}:
+                if succeeded and (method in {"directions.delete", "cleanup.execute"}
+                                  or (method == "drafts.apply" and result['draft_kind'] == 'search')):
                     service.schedules.changed = True
                 if succeeded and method == "cleanup.execute":
                     event("cleanup.completed", result)

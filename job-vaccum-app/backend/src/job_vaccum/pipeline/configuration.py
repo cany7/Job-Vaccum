@@ -224,6 +224,8 @@ def draft(repo, method, params):
                 repo.db.execute('BEGIN IMMEDIATE')
                 repo.db.execute('DELETE FROM directions')
                 repo.db.execute("UPDATE jobs SET queries_json='[]'")
+                # Every selected search ID is replaced; All searches stays dynamic.
+                repo.db.execute("UPDATE schedules SET direction_ids_json='[]',enabled=0 WHERE json_type(direction_ids_json)='array'")
                 for index, d in enumerate(content['directions']):
                     did = str(uuid4())
                     repo.db.execute('INSERT INTO directions VALUES (?,?,1,?)', (did, d['name'].strip(), index))

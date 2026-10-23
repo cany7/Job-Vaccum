@@ -270,3 +270,71 @@ def test_live_clock_starts_on_time_once(scheduler):
     s.schedules.advance(lambda *a: None)
     drain(s)
     assert s.runs.list({})['items'][0]['status'] == 'succeeded'
+
+
+def test_search_draft_clears_selected_schedules_but_preserves_all_searches(scheduler):
+    s, now = scheduler
+    old_direction = s.repo.directions()[0]['id']
+    selected = save(s, direction_ids=[old_direction])
+    disabled = save(s, direction_ids=[old_direction], enabled=False)
+    all_searches = save(s, time='10:00')
+    before = {item['id']: item for item in listed(s)['items']}
+    content = {'directions': [{'name': 'Replacement', 'queries': [{'expression': 'new query', 'enabled': True}]}],
+               'cities': [{'location': 'Toronto', 'distance_miles': 0, 'enabled': True}]}
+    s.dispatch('drafts.save', {'draft_kind': 'search', 'content': content})
+    assert {item['id']: item for item in listed(s)['items']} == before
+    s.dispatch('drafts.apply', {'draft_kind': 'search'})
+    after = {item['id']: item for item in listed(s)['items']}
+    assert s.repo.directions()[0]['id'] != old_direction
+    for identifier in (selected, disabled):
+        assert after[identifier]['direction_ids'] == []
+        assert after[identifier]['enabled'] is False
+        assert after[identifier]['next_at'] is None
+    assert after[all_searches] == before[all_searches]
+    now[0] = ms('2026-10-19T08:59:59')
+    s.dispatch('internal.schedules_check', {})
+    now[0] += 1000
+    s.dispatch('internal.schedules_check', {})
+    assert s.runs.list({})['total'] == 0
+    assert listed(s)['firings'] == []
+    now[0] = ms('2026-10-19T09:59:59')
+    s.dispatch('internal.schedules_check', {})
+    now[0] += 1000
+    s.dispatch('internal.schedules_check', {})
+    s.schedules.advance(lambda *a: None)
+    drain(s)
+    run = s.runs.list({})['items'][0]
+    assert run['status'] == 'succeeded'
+    assert run['trigger']['schedule_id'] == all_searches
+
+
+@pytest.mark.parametrize('kind,fail', [('search', False), ('rubric', False), ('search', True)])
+def test_draft_apply_schedule_event_and_transaction_rollback(scheduler, kind, fail):
+    from io import BytesIO
+    from job_vaccum.service.server import serve
+    from test_business_protocol import request
+
+    s, now = scheduler
+    save(s, direction_ids=[s.repo.directions()[0]['id']])
+    content = {'directions': [{'name': 'Replacement', 'queries': [{'expression': 'new', 'enabled': True}]}],
+               'cities': [{'location': 'Toronto', 'distance_miles': 0, 'enabled': True}]} if kind == 'search' else 'New rubric'
+    s.dispatch('drafts.save', {'draft_kind': kind, 'content': content})
+    before_settings, before_schedules = s.repo.settings(), listed(s)
+    if fail:
+        # Fail after deleting directions and clearing schedule selections; both
+        # changes must roll back along with the replacement search configuration.
+        s.repo.db.execute("CREATE TRIGGER fail_draft BEFORE INSERT ON directions BEGIN SELECT RAISE(ABORT,'synthetic draft failure'); END")
+    output = BytesIO()
+    serve(s.root, BytesIO(request('apply', 'drafts.apply', {'draft_kind': kind})), output, clock=lambda: now[0])
+    messages = [json.loads(line) for line in output.getvalue().splitlines()]
+    response = next(m for m in messages if m.get('id') == 'apply')
+    assert response['ok'] is not fail
+    events = [m for m in messages if m.get('name') == 'schedules.updated']
+    assert len(events) == (1 if kind == 'search' and not fail else 0)
+    if events:
+        assert messages.index(response) < messages.index(events[0])
+        assert events[0]['data'] == {}
+    if fail or kind == 'rubric':
+        assert listed(s) == before_schedules
+    if fail:
+        assert s.repo.settings() == before_settings

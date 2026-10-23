@@ -1,6 +1,17 @@
 # 开发状态
 
-最新状态：2026-10-23 M7 后端与 main 计划/后台生命周期已完成并本地提交于 codex/dev，未推送。225 项后端、22 项 Node、9 项 Electron 测试通过。M7 Runs/Appearance renderer、打包、签名和发布验收不在本轮授权范围。M4 后端既有交付保留，M5/M6 未在本轮扩展。
+最新状态：2026-10-23 M7 搜索草稿替换遗漏计划关联清理的 P2 已修复并本地提交于 codex/dev，未推送；本轮 86 项相关后端回归通过。M7 后端与 main 计划/后台生命周期此前已完成。225 项后端、22 项 Node、9 项 Electron 测试通过。M7 Runs/Appearance renderer、打包、签名和发布验收不在本轮授权范围。M4 后端既有交付保留，M5/M6 未在本轮扩展。
+
+
+## M7 P2 修复：应用搜索草稿同步清理计划关联（2026-10-23，Codex）
+
+复核 a6190a2 的审阅结论属实：drafts.apply(search) 直接删除/重建全部方向，未执行 direction_delete 中的计划关联清理，也未标记 schedules.updated。先添加回归用例，修复前 2 failed / 2 passed，分别复现失效 direction_ids 保留和缺少更新事件。
+
+在搜索草稿原有事务中，将指定搜索的计划 direction_ids 清空、enabled=false；All searches（null）保持原样。仅成功应用 search 草稿后标记 schedules.updated，在成功响应之后发送；rubric 草稿和失败事务不发送该事件。没有抽取新框架、修改迁移、依赖、renderer 或 main。
+
+新增四项回归覆盖：保存草稿不改计划；应用后已启用/已关闭的指定搜索计划均清空并关闭、next_at=null；原到点时刻不再生成失败运行；All searches 使用新搜索正常运行；真实 service 接收循环的成功响应/事件顺序；rubric 不改计划；插入新方向失败时旧方向、城市和计划共同回滚且不发送 schedules.updated。
+
+沿用上节环境和合成 fake I/O，未访问网络或私人凭据。开工 `git fetch origin` / `git merge origin/main` 返回 Already up to date，保留已有本地提交。backend `uv run --locked pytest -q tests/test_schedules.py tests/test_pipeline.py tests/test_business_protocol.py`：**86 passed / 1.01s**；`git diff --check` 通过。本次仅复跑相关后端测试，未重跑后端全量或桌面测试；此前 225 项全量结果属于上一轮交付。仅本地 commit，不 push。
 
 
 ## M7 后端与 main：计划、等待队列和桌面后台（2026-10-23，Codex）
