@@ -291,3 +291,33 @@ backend assertions. The actual Electron owner-crash check is
 `../tests/electron-recovery-smoke.cjs`; exact invocation and verified results live
 in DEVELOPMENT-STATUS. Scheduled-trigger assertions in R01/R16 remain M7, and M4
 renderer controls are outside this backend delivery.
+
+## M5 draft generation
+
+`drafts.generate {kind:"search"|"rubric",input:{text,conditions?,clarification_answer?}}`
+saves input before checking model prerequisites, then returns an operation ID.
+Generation uses the same pool, rate gate and finite retry policy as scoring and
+connection tests. On success, `drafts.generated {operation_id,draft_kind}` means
+the validated draft is committed; read it with `drafts.get`. Errors use
+`operation.failed`. Cancelling retains in-flight capacity until the HTTP request
+ends and discards its output. User edits, Apply or a new generation cancel older
+generation of the same kind so late results cannot overwrite the newer work.
+
+`drafts.get/save/apply` also return `input`. Save accepts content and/or input,
+allowing incomplete text to be saved independently. Inputs and editable content
+use separate keys in the existing settings table, without a migration. Failure
+and cancellation preserve both the input and previous content. Formal settings
+only change on Apply; applying a rubric never enables automatic scoring.
+
+The two built-in prompts live together in `src/job_vaccum/llm/drafts.py`. Search
+output is validated structured JSON (one direction, two or three queries, cities,
+or one short clarification); clarification drafts cannot be applied. Rubric
+output is nonempty Markdown, without JSON wrapping or an enclosing code fence.
+Explicit conditions reuse the existing qualification schema and default to saved
+qualifications when omitted. No resume file parser or autonomous agent is added.
+
+`tests/test_drafts.py` uses FakeLlm responses, temporary databases and the real
+service loop. See the M5 section of [CONTRACTS](../../dev-docs/CONTRACTS.md) for
+the complete API and [DEVELOPMENT-STATUS](../../dev-docs/DEVELOPMENT-STATUS.md) for
+executed checks. Electron generate bindings/event types and the onboarding UI
+are outside this Python-only delivery.

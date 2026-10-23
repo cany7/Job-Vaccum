@@ -29,6 +29,8 @@ JSON 数组适合保存来源展示信息、命中的 query，避免给每个附
 
 保留上述 12 张表（另有 schema_version），不合并 jobs 与 applications，不新增抓取检查点表。job_directions 和 run_jobs 是多对多关联表；job_identities 是一对多查重身份表。run_tasks 不保存抓取结果文件引用。抓取任务 stable_order 在运行开始时确定；评分任务按登记顺序分配并持久化，续跑不重新编号。
 
+M5 引导沿用 settings：`draft:search/rubric` 保存可编辑生成内容，`draft_input:search/rubric` 保存用户原始文本、明确条件及可选追问回答；与正式方向/城市/rubric 分开。输入含用户主动粘贴的简历，不含模型 Key。失败或取消不清空输入及旧草稿；只有 Apply 原子写正式配置。operation 只在内存，不保存请求历史或自动恢复生成。
+
 JobSpy 升级不新增表。job_url_direct 与 sources_json 中 direct_url 均允许为空；该基线的 LinkedIn 不提供外链时，使用 job_url 打开平台页面，不为缺失值建立 identity。抓取器输出按列名映射到业务字段：min_amount/max_amount → salary_min/salary_max；缺失值转 NULL，0 不作缺失。DataFrame 转换规则见 PIPELINE。任务的脱敏错误使用 error_json，warnings/缺 JD 计数等必要诊断随 stats_json 保存；不持久化原始 DataFrame.attrs 或完整响应。
 
 `description` 保存完整 JD。sources_json 元素如 `{site,id,url,direct_url}`，queries_json 元素如 `{query_id,direction_id,text}`；规范化后以稳定键去重。JSON 只用于集合内容，不是反复追加的无界运行日志。

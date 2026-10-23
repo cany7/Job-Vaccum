@@ -1,6 +1,28 @@
 # 开发状态
 
-最新状态：2026-10-23 M7 搜索草稿替换遗漏计划关联清理的 P2 已修复并本地提交于 codex/dev，未推送；本轮 86 项相关后端回归通过。M7 后端与 main 计划/后台生命周期此前已完成。225 项后端、22 项 Node、9 项 Electron 测试通过。M7 Runs/Appearance renderer、打包、签名和发布验收不在本轮授权范围。M4 后端既有交付保留，M5/M6 未在本轮扩展。
+最新状态：2026-10-23 M5 Python 后端已完成搜索草稿与评分模板生成，本地交付于 codex/dev，未推送；完整后端 **265 项通过**。生成异步、可取消、校验输出、有限重试、失败保留输入；两段 prompt 集中维护。Electron generate 桥接和 M5 renderer 尚未实现。M4、M7 后端及 main 既有交付保留；此前 22 项 Node、9 项 Electron 测试属于 M7，本轮未重跑。M6、完整引导/Skip、打包、签名与发布不在本轮范围。
+
+## M5 Python 后端：搜索草稿与评分模板生成（2026-10-23，Codex）
+
+用户授权完成 M5 后端的 drafts.generate，要求异步 operation、取消、模型输出校验、有限重试、失败输入不丢、两段 prompt 集中及 fake LLM 测试。阅读 README、SPEC、ARCHITECTURE、DATA-MODEL、CONTRACTS、PIPELINE、IMPLEMENTATION-PLAN、ACCEPTANCE 和既有实现；沿用独立 codex/dev 工作区。开工 `git fetch origin`、`git merge origin/main` 返回 Already up to date，保留此前四个本地提交。没有启动其他 Agent、修改依赖/lockfile、读取旧项目私人内容或调用真实服务。
+
+- **生成与 operation**：新增 drafts.generate，复用同一个 LlmPool 的并发/RPM、3 次尝试、5/10 秒退避及 Retry-After；响应先返回 operation_id，成功落库后 drafts.generated，失败 operation.failed。app.status 展示生成 kind、draft_kind 和 running/cancelling。取消排队、RPM/退避可打断，在途请求结束前继续占并发、结果丢弃；清理互斥复用已有入口。
+- **输入与结果**：沿用 settings 表，input 与 editable content 分 key 存储，未新增表/迁移、历史副本或持久 operation。drafts.save 支持 input-only 自动保存未完成文本；generate 在检查非空文本/model/Key 前保存结构合法的输入。失败、取消和重启保留输入及最后草稿；成功生成只改草稿，Apply 才写正式设置。后来成功保存、Apply 或重新生成同一种草稿会取消旧生成，防止迟到结果覆盖。写库失败发送受控 STORAGE_ERROR，回滚并保留旧草稿，service 不退出。
+- **输出与 prompt**：`backend/src/job_vaccum/llm/drafts.py` 集中两段 prompt、请求上下文和生成校验。搜索要求一个方向和 2～3 query，严格字段/类型/非空/半径校验，不接受模型 ID；支持一轮简短 clarification，追问不可 Apply，回答后再追问算无效生成。rubric 校验非空文本、拒绝 JSON 包装和外层代码围栏；不强制 Markdown 固定章节。复用现有 qualifications，多方向全局 rubric，不推断身份由 prompt 明确约束；事实准确性仍需用户审阅。正式评分 JSON 格式仍由评分调用附加。
+- **契约及交接**：CONTRACTS 补充完整请求、返回、新事件、输入保存、取消和追问语义；DATA-MODEL、ACCEPTANCE、backend README 同步。只改 Python 及文档；Electron shared/main/preload 新 generate 方法和事件类型需后续接入，既有 drafts.get/save/apply 内容字段调用继续兼容。没有宣称完整 M5 引导出口或 UI 验收完成。
+
+验证环境：macOS 27.0.1（26A434）arm64；uv 0.13.5，`uv run --locked` Python 3.13.12 / SQLite 3.54.0。全部使用临时 SQLite、合成用户输入/简历、注入 FakeLlm；已有全量测试另含 loopback 假 HTTP server、fake scraper 及 M4 故障进程。未访问真实招聘网站、代理或付费模型，没有私人凭据。
+
+| 命令 / 检查 | 实际结果 |
+| --- | --- |
+| backend `uv run --locked pytest -q tests/test_drafts.py tests/test_scoring.py tests/test_pipeline.py tests/test_schedules.py` | 首轮 127 passed / 1 failed，1.48s；唯一失败为新测试误传 jobs.detail 的 id 而非 job_id，修正测试参数 |
+| backend `uv run --locked pytest -q` | **265 passed / 75.45s**，包含新增 36 项草稿测试 |
+| backend `uv run --locked python -c 'import platform, sqlite3; print(platform.python_version(), platform.machine(), sqlite3.sqlite_version)'` | 3.13.12 / arm64 / 3.54.0 |
+| `git diff --check` | 通过 |
+
+新增测试覆盖生成成功/一轮追问/严格格式、无效生成三次耗尽与重试成功、认证不重试、输入-only 保存和原子校验、缺模型/Key/文本后的输入保留、旧草稿与正式配置不变、重开数据库读取、rubric 编辑/Apply 后实际 fake 评分得到 0 分、排队/RPM/退避/在途取消、共享连接测试与评分并发、响应查询和备注、清理 BUSY、用户更新后丢弃旧结果、生成写库故障回滚、真实 service 接收循环的响应/事件顺序与无 Key 回显。
+
+未运行 desktop/Node/Electron、视觉或安装包验收；未验证真实模型生成质量，未完成前端引导/Skip。仅本地提交，不 push、提 PR 或发布。
 
 
 ## M7 P2 修复：应用搜索草稿同步清理计划关联（2026-10-23，Codex）

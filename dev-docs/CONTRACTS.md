@@ -68,7 +68,7 @@ JobSummary：id、company、title、location、job_type、score 可空、score_r
 | queries.save/delete | ID、方向、expression、enabled | ID 稳定；运行快照不变 |
 | drafts.get/save | draft_kind、内容 | 持久草稿；不得覆盖正式设置 |
 | drafts.generate | kind=search/rubric、用户文本／条件 | operation_id；异步生成草稿 |
-| drafts.apply | draft_id | 应用编辑后的已验证草稿 |
+| drafts.apply | draft_kind | 应用编辑后的已验证草稿 |
 | model.test | 当前或待保存连接的非敏感字段 | operation_id，最小文本请求 |
 | jobs.list/detail | FilterSpec / job_id | 分页摘要 / 详情 |
 | applications.add | job_id | added 或 already_present |
@@ -152,6 +152,20 @@ search draft 返回 `{directions:[{name,queries:[{expression,enabled}]}],cities:
 rubric draft 返回 Markdown 字符串。用户只粘贴简历文本及少量明确条件；模型不能推断身份。输出评分 JSON 的格式要求由调用层附加，不要求用户维护格式指令。AI 输入/输出均不直接当 SQL、文件路径或命令执行。
 
 所有模型调用使用同一全局并发/RPM 调度器。网络错误、408、429、5xx 和无效生成按有限次数重试；认证及其他明确 4xx 直接报错，不无限重试。Retry-After 可影响等待时间，但不突破用户停止信号。
+
+### M5 后端草稿生成（2026-10-23）
+
+本节扩展 M2 草稿接口与 M3 model operation；schema_version=5、protocol_version=1 不变。当前仅 Python 实现，尚未增加 Electron shared/main/preload 的 generate 方法和事件类型，renderer 引导另行接入。现有 get/save/apply 的调用继续兼容；新增返回字段 input。
+
+- `drafts.generate {kind:"search"|"rubric",input:{text:string,conditions?:Qualifications,clarification_answer?:string}}`。text 为求职描述或粘贴的简历；conditions 沿用 rules.qualifications 的字段与校验（requires_sponsorship、work_authorization、languages、graduation_date、degrees）。省略 conditions 时复用当前已保存 qualifications；显式提供时整体使用该对象，`{}` 表示无条件。clarification_answer 仅 search 可用，为一轮追问的回答；再次提交时保留原 text。
+- 结构合法的 input 在检查非空文本、模型配置和 Key 前写入 `settings` 的 `draft_input:search` / `draft_input:rubric`，保留原文本（含换行与首尾空白）。空文本返回 VALIDATION_ERROR，缺模型返回 VALIDATION_ERROR，缺 Key 返回 AUTH_ERROR；均不启动 operation、不清空旧草稿。参数类型或条件值不合法则整体拒绝。已有 `draft:search/rubric` 继续保存可编辑内容，不新增业务表、历史副本或持久 operation。
+- 配置有效时立即返回 `{operation_id}`。使用开始时的模型、Key、输入和相关设置；共享评分/连接测试的同一个 LLM 池，遵守并发 1、RPM 10、三次尝试、5/10 秒退避和 Retry-After。查询、清单编辑及其他种类模型请求仍可接受，清理等待全部 operation 结束。
+- 成功经接收循环提交草稿后发送 `drafts.generated {operation_id,draft_kind}`；调用方通过 drafts.get 读取持久内容。成功响应一定先于事件。新事件独立于 CSV 的 operation.completed 和 model.test.completed，避免误触发旧 UI。失败发送既有 `operation.failed {operation_id,error}`，不包含模型原文或简历；写库失败返回 STORAGE_ERROR，事务回滚，接收循环继续可用。
+- `app.status.operations` 增加 `{operation_id,kind:"draft_generate",draft_kind,status:"running"|"cancelling"}`。`operations.cancel` 支持生成；取消排队、RPM 等待和退避，已发请求仍占并发直到结束，迟到结果丢弃并最终发送 operation.failed/CANCELLED。退出沿用 M4 取消和有界停止，重启不自动续发生成，输入/最后成功草稿仍可读取。
+- `drafts.get {draft_kind}` 返回 `{draft_kind,content:null|SearchDraft|string,input:null|上述input}`；`drafts.save {draft_kind,content?,input?}` 至少提供 content/input 之一，未提供字段保持。input-only 保存允许 text 为空，供未完成表单持久化；同时保存内容和输入时先全部校验，再原子提交。输入加内容需可通过既有 1 MiB 响应上限读取，超限拒绝写入；超限模型输出按无效生成有限重试。旧草稿无 input 时返回 null，无迁移要求。
+- 同一种草稿后续成功的 save/apply 或新 generate 输入保存会取消尚未结束的旧生成，防止迟到内容覆盖用户更新；其他 kind 和 model.test 不受影响。取消、失败、请求期间均保留已有可编辑草稿；只有成功生成才替换该 kind 的草稿。正式配置始终只由 Apply 更新，rubric Apply 不自动开启评分。
+- 搜索生成严格校验 JSON 字段、非空名称/表达式、boolean enabled、0..1000 的整数半径；拒绝模型指定的数据库 ID、未知字段、空方向或错误数量。正常输出一个方向、2～3 query；编辑后的手动草稿仍可增删方向/query。信息不足时接受 `{directions:[],cities:[],clarification:"简短问题"}`；带 clarification 的内容不可 Apply。传入 clarification_answer 后再次追问视为无效输出，走有限重试，不启动自主对话循环。
+- rubric 生成接受非空 Markdown 文本，拒绝 JSON 包装或外层代码围栏，不强制固定标题/关键词。身份、资格不推断及不把未知条件当冲突由 prompt 约束，格式校验不能证明内容事实正确；生成后仍需用户审阅编辑。两段内置 prompt 集中在 `backend/src/job_vaccum/llm/drafts.py`。使用简单岗位关键词约束 LinkedIn/Indeed 搜索，未指定城市时提示保留已有城市；rubric 复用明确条件及现有方向名，评分 JSON 格式继续由实际评分调用层附加。
 
 ## M1 第 2 步实施补充（2026-10-19）
 

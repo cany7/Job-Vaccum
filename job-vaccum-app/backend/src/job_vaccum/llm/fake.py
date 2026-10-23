@@ -5,9 +5,10 @@ from job_vaccum.llm.http import ModelError
 
 
 class FakeLlm:
-    def __init__(self, scenario='success', *, score=0, entered=None, release=None):
+    def __init__(self, scenario='success', *, score=0, entered=None, release=None, responses=None):
         self.scenario, self.score = scenario, score
         self.entered, self.release, self.calls = entered, release, []
+        self.responses = iter(responses) if responses is not None else None
 
     def __call__(self, model, key, system, prompt):
         self.calls.append({'model': model.copy(), 'system': system, 'prompt': prompt})
@@ -15,6 +16,11 @@ class FakeLlm:
             self.entered.set()
         if self.release and not self.release.wait(5):
             raise ModelError('NETWORK_ERROR', 'Synthetic timeout.', retryable=True)
+        if self.responses is not None:
+            response = next(self.responses)
+            if isinstance(response, Exception):
+                raise response
+            return response
         if self.scenario == 'failure':
             raise ModelError('AUTH_ERROR', 'Synthetic authentication failure.')
         if self.scenario == 'invalid':

@@ -211,3 +211,15 @@ M4 后端交付不等同于 R01/R16 的计划部分或完整 M4 renderer 交付�
 | S03/S04：无窗口/双图标隐藏时实际触发、Dock 恢复、偏好重启、Cmd+Q 确认分支及信号退出 | desktop/tests/e2e/schedules.spec.cjs；真实 Electron/service/SQLite，调度用无效合成配置形成明确 failed run，无网络；退出分支以合成 stopping 行和 dialog 适配测试 |
 
 原生确认框的实际人工/计算机检查结果、执行命令及环境只记 DEVELOPMENT-STATUS；虚拟时钟不等同于实际让 Mac 休眠数日。安装副本、Spotlight 在正式安装副本中的行为与签名发布验收仍保留后续阶段。
+
+## M5 后端验证入口
+
+`backend/tests/test_drafts.py` 使用注入的 fake LLM、临时 SQLite 和真实 service 接收循环，覆盖 A06/A07/A11/A12 的后端边界：
+
+- 搜索生成、一次追问、错误字段/ID/类型/空输出、Markdown rubric；无效生成三次耗尽或重试后成功，认证失败不重试，Retry-After 等待可取消。
+- 复用明确条件、多方向全局模板、编辑和 Apply、rubric 不自动开评分；生成 rubric 接入实际 fake 评分任务，0 分成功。
+- 输入-only 保存、模型/Key/文本缺失后输入保留、失败和重启读取、正式配置 Apply 前不变、事务故障回滚。
+- 生成与连接测试/评分共用池；排队、RPM、退避、在途取消，取消在途仍占并发且清理 BUSY，查询/备注可继续；用户后续编辑/Apply/生成不会被旧请求覆盖。
+- 真实协议的接受响应先于 drafts.generated，事件不携带 Key/简历正文；客户端重新读取持久结果。格式校验不等于事实校验，身份/资格不推断由集中 prompt 约束并留用户审阅。
+
+四协议 HTTP、全局请求间隔和网络错误分类继续由 test_llm 覆盖。本次不包含 Electron 桥接、renderer 引导、Skip 流程、视觉检查、真实模型、安装包或完整 M5 出口验收；实际命令与结果只记 DEVELOPMENT-STATUS。
