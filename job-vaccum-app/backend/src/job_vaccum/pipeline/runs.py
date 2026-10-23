@@ -332,6 +332,7 @@ class Runs:
                 try:
                     result = retrieve(task['spec'], snapshot['parameters'], proxy, self.stop_signal, self.attempt,
                                       lambda: self.inbox.put(('retrieval_attempt', task['id'])))
+                    result['attempt_count'] = task['attempt_count'] + result.pop('attempts')
                 except Exception:
                     result = {'records': [], 'warnings': [], 'error': {'code': 'WORKER_EXITED', 'message': 'Scrape worker failed.', 'retryable': False}}
                 self.inbox.put(('retrieval_result', (task['id'], result)))
@@ -396,6 +397,8 @@ class Runs:
             with self.db:
                 self.db.execute('BEGIN IMMEDIATE')
                 stats = task['stats'] if cancelled else ingest(self.db, identifier, task, snapshot, result, self.repo.clock())
+                if 'attempt_count' in result:
+                    self.db.execute('UPDATE run_tasks SET attempt_count=? WHERE id=?', (result['attempt_count'], task_id))
                 self.db.execute('UPDATE run_tasks SET status=?,stats_json=?,error_json=? WHERE id=?',
                                 ('cancelled' if cancelled else 'failed' if result['error'] else 'succeeded', json.dumps(stats), json.dumps(result['error']) if result['error'] else None, task_id))
                 self.save_stats(identifier)

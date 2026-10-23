@@ -162,6 +162,26 @@
 
 真实网站失败可能来自平台限制，记录证据后修复可控问题；不得通过取消错误检查把失败当作零结果。未通过项列出影响与复现步骤，不能用“应该可以”结项。
 
+## M4 后端验证边界与入口
+
+本阶段使用 `backend/tests/test_recovery.py` 的真实子进程硬退出、重启与合成 I/O，加上既有 pipeline/scoring/LLM 测试；不通过产品命令启用故障，也不保存 raw、manifest 或文件清理恢复状态。实际运行结果与环境只记 DEVELOPMENT-STATUS。
+
+| 验收项 | 自动化入口与边界 |
+| --- | --- |
+| R01 | test_pipeline 的真实接收循环互斥；desktop/tests/backend.test.cjs 的 start 超时后查询状态、不重发。计划 waiting/结束后触发属于 M7；renderer 重复点击沿用既有 E2E，本轮不新增界面 |
+| R02–R03 | test_pipeline 的 zero/failure/partial、重叠重试、统计替换；test_recovery 的有限预算与已成功任务跳过 |
+| R04 | test_scoring 的在途 0 分保存/未发送任务取消；test_recovery 同时停止抓取和评分，stopping 拒绝 start/resume/rescore |
+| R05 | test_recovery 的真实 worker 异常、service 硬退出、owner 丢失、挂起请求退出时限；desktop Backend 进程组终止测试；tests/electron-recovery-smoke.cjs 强杀真实 Electron owner 后重启续跑 |
+| R06 | test_recovery 的 register_before/after、batch_before/after_commit 硬退出：提交前无半批，提交后岗位/任务/统计齐全 |
+| R07–R08 | test_recovery 变更配置/修正 Key 后 resume，以及三轮尝试耗尽（累计 3/6/9）后再次续跑成功；test_pipeline 普通代理凭据修正 |
+| R09–R12 | test_recovery 同时在途时查询/清单备注/清理 BUSY、恢复先评已入库岗位；test_scoring 跨批重叠和相同岗位不重复评分、抓取结束等待评分 |
+| R13 | test_recovery 的 score_dispatch、score_before/after_commit；同批登记两个相同评分输入但不同岗位，各自评分；test_scoring 同输入独立请求及成功结果保留 |
+| R14–R15 | test_scoring 的停止/中断后全部删除或混合存活、NOT_FOUND 零调用零尝试，以及满队列取消；test_recovery 补抓取发送边界取消 |
+| R16 | test_pipeline selected_searches_snapshot_trigger_and_global_dedup 与删除方向回归；计划移除搜索 ID/自动关闭属于 M7 |
+| 临时资源、显式 Quit | test_recovery 的删除失败记录、提交不回滚、重启清理、EOF/SIGTERM 保存成功结果、挂起 LLM 和抓取有界退出；不包含 M6 Mihomo 实例或 M7 退出确认界面 |
+
+M4 后端交付不等同于 R01/R16 的计划部分或完整 M4 renderer 交付，也不代替安装包验收。普通 HTTP 在远端成功、本地尚未提交的崩溃窗口可能重发；只保证本地已提交成功的结果不重算。
+
 
 ## M1 第 2 步验收边界（2026-10-19）
 

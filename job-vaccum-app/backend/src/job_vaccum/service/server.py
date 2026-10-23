@@ -178,10 +178,11 @@ class Service:
 
 
 def serve(root: Path, source: BinaryIO, destination: BinaryIO, *, clock=now_ms, enable_dev=False,
-          cleanup_interval=60, attempt=None, llm_options=None) -> None:
+          cleanup_interval=60, attempt=None, llm_options=None, shutdown=None) -> None:
     # Only this receive loop writes SQLite or protocol output. The input reader and
     # CSV worker submit messages; neither shares the writer connection.
     inbox = queue.Queue(maxsize=64)
+    shutdown = shutdown if shutdown is not None else threading.Event()
     def read_input():
         try:
             # A reader-owned buffer avoids locking interpreter-owned stdin during
@@ -208,7 +209,18 @@ def serve(root: Path, source: BinaryIO, destination: BinaryIO, *, clock=now_ms, 
         ended = False
         try:
             while not ended or service.operations or service.model_operations or service.runs.active():
-                timeout = max(0, deadline - time.monotonic())
+                if shutdown.is_set() and not ended:
+                    ended = True
+                    for token in list(service.model_operations):
+                        service.llm.cancel(token)
+                    active = service.runs.active()
+                    if active:
+                        service.runs.stop({'run_id': active['run_id']})
+                        service.runs.notifications(active['run_id'], event)
+                        service.runs.advance(event)
+                    if not service.operations and not service.model_operations and not service.runs.active():
+                        break
+                timeout = min(0.1, max(0, deadline - time.monotonic()))
                 try:
                     kind, payload = inbox.get(timeout=timeout)
                 except queue.Empty:
@@ -225,13 +237,9 @@ def serve(root: Path, source: BinaryIO, destination: BinaryIO, *, clock=now_ms, 
                             logging.error("CLEANUP_ERROR: Automatic cleanup failed.")
                     deadline = time.monotonic() + cleanup_interval
                 if kind == "eof":
-                    ended = True
-                    for token in list(service.model_operations):
-                        service.llm.cancel(token)
-                    active = service.runs.active()
-                    if active:
-                        service.runs.stop({'run_id': active['run_id']})
-                        service.runs.advance(event)
+                    shutdown.set()
+                    continue
+                if ended and kind == 'request':
                     continue
                 if kind in ('llm_attempt', 'llm_result'):
                     service.handle_llm(kind, payload, event)
@@ -273,4 +281,7 @@ def serve(root: Path, source: BinaryIO, destination: BinaryIO, *, clock=now_ms, 
                     service.runs.notifications(result['run_id'], event)
                     service.runs.advance(event)
         finally:
+            shutdown.set()
             service.runs.close()
+            if not service.runs.thread or not service.runs.thread.is_alive():
+                service.cleanup.clear_tmp()

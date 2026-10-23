@@ -1,6 +1,53 @@
 # 开发状态
 
-最新状态：2026-10-20 Jobs/Shortlist 评分与批次界面修正已实现并本地提交于 codex/dev，未推送（见下节）。M2 Runs 修正已通过 PR #13 合入 main（3a6816f）；运行计划本体仍属 M7。真实模型、安装包未补验，安装版分页重试遗留失败仍暂缓。
+最新状态：2026-10-23 M4 后端停止/恢复与运行完整性已完成并本地提交于 codex/dev（下节），未推送。200 项后端测试、17 项 Node 测试、6 项 Electron 冒烟及真实 Electron owner 强杀恢复验证通过。M4 renderer、R01/R16 计划部分（M7）、M6 Mihomo、安装包及真实模型复验仍未完成。
+
+
+## M4 后端：停止、崩溃恢复与运行完整性（2026-10-23，Codex）
+
+### 范围与实际交付
+
+用户授权 M4 后端、停止与恢复、interrupted、resume 新尝试预算、故障注入、退出有界停止及 ACCEPTANCE R 系列。阅读 README、SPEC、ARCHITECTURE、DATA-MODEL、CONTRACTS、PIPELINE、IMPLEMENTATION-PLAN、ACCEPTANCE 和既有实现。沿用独立 codex/dev 工作区；开工 fetch 后 HEAD 与 origin/main 均为 24d1100，`git merge origin/main` 无新增提交。未调用其他 Agent，未改 renderer、业务数据模型、依赖或 lockfile，未使用私人配置或凭据。
+
+- **有界退出**：原 main 已有进程组停止；补齐 Python 在 Electron 本身消失时的退出边界。EOF/SIGTERM 进入正常停止，停止新派发/重试，继续处理在途成功评分。CLI 自接收关闭信号起等待 10 秒，超时只结束自己创建的 multiprocessing 子进程及自身，绕过 ThreadPoolExecutor 的退出 join。正常 Stop 仍等待已发模型请求结束；Quit 强制结束时保留已提交数据，重启为 interrupted。
+- **停止发送边界**：抓取线程的开始通知可能阻塞在满队列；返回后复查 stop，未实际发出的抓取不计入最终累计 attempt_count。LLM 原有对应边界继续保留。
+- **临时资源**：正常 service 退出在抓取子进程结束后清空 App tmp。删除失败记录日志、不回滚业务提交、不新增恢复状态；强制退出剩余 tmp 在下次启动清理。
+- **恢复及预算验证**：沿用已有稳定任务 ID、原始快照及 succeeded 跳过逻辑。通过真实进程硬退出验证批次登记/提交、评分派发/提交七个故障点。失败任务连续三轮各得三次预算，累计 3/6/9；再一次显式 resume 可成功，已成功任务始终不重做。修正运行时 Key 可续跑，修改当前模型/rubric/城市/自动评分开关不改变旧快照。
+- **R 系列后端验证**：新增 `test_recovery.py` 19 项；使用仅存在于 tests 的 SQLite 子类/合成 transport 注入故障，没有生产开关或协议入口。覆盖工作子进程异常、service 硬退出、owner 异常退出、同时在途的停止与续跑、清理 BUSY/查询及备注响应、临时文件删除失败、EOF/SIGTERM 保存成功评分、挂起模型/抓取退出时限。既有 tests 继续覆盖零结果/失败区分、跨批去重/评分、缺失岗位 NOT_FOUND、满队列取消等。
+- **桌面边界验证**：新增 Node 测试验证 runs.start 超时后只查询状态、不重发；忽略 EOF/SIGTERM 的服务和子进程最终被 main 在约 11 秒结束。新增 `tests/electron-recovery-smoke.cjs`，直接 SIGKILL 真实 Electron owner，挂起 LLM 的后端约 10 秒自行结束；重启 interrupted，resume 完成两条评分，已成功抓取仍为一次尝试。
+- CONTRACTS、PIPELINE、backend README 同步退出语义；ACCEPTANCE 增加 R 系列测试入口和阶段边界。未增加公开协议字段或数据库迁移。
+
+### 实际验证环境与命令
+
+macOS 27.0.1（26A434）、arm64；项目 Python 声明与 uv 环境均 3.13.12，SQLite 3.54.0；Node 本机 26.12.1（项目 .node-version 26.12.0，满足既有 engines）、npm 11.20.0、uv 0.13.5、Electron 44.9.0。沿用已有独立依赖环境，没有升级或重装。
+
+| 命令 / 检查 | 实际结果 |
+| --- | --- |
+| backend `uv run --locked pytest -q`（第一轮，仅生产修改） | 原有 181 passed，19.63 秒 |
+| backend `uv run --locked pytest -q tests/test_recovery.py`（分批扩充故障用例） | 初批 13 passed；扩充后 18 passed，45.56 秒 |
+| backend `uv run --locked pytest -q tests/test_recovery.py -k 'owner_process or tmp_removal'` | 2 passed，10.94 秒 |
+| backend `uv run --locked pytest -q`（最终完整后端回归） | **200 passed，75.19 秒** |
+| desktop `npm test` | 类型检查、生产构建、**17 Node tests passed**，Node 测试 23.52 秒 |
+| desktop `npx --no-install playwright test --grep @smoke` | **6 passed，7.9 秒**：真实通信、关闭/重开/Quit、后端崩溃、M1/M2 桥接、列表及 Runs |
+| 下方真实 Electron owner 强杀命令 | **passed**；service_exit_ms=10030，恢复 succeeded，2 条评分完成，成功抓取未重做 |
+| `git diff --check` | 通过 |
+
+实际 Electron 验证从仓库根执行（此目录保留本次合成证据；再次执行须改用新的空目录）：
+
+```sh
+job-vaccum-app/desktop/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron job-vaccum-app/tests/electron-recovery-smoke.cjs --python "$PWD/job-vaccum-app/backend/.venv/bin/python" --data-dir "$PWD/tmp/m4-electron-recovery-20261023"
+```
+
+所有抓取/模型输出均为合成值；故障子进程显式阻断网络。测试中真实执行了 spawn、硬退出、SIGTERM/SIGKILL、SQLite 崩溃恢复、有限等待与进程回收。测试入口首次误从仓库根执行 `uv run --locked pytest`，未进入 Python 工程而报找不到 pytest；改在 backend 目录执行，无依赖变动。
+
+### 交付边界与未完成项
+
+- R01/R16 的当前后端部分已验证；计划 waiting、触发队列、删除搜索后计划关闭属于 M7，没有提前实现或标为通过。
+- 本轮不实现 M4 renderer 的 Resume/interrupted/剩余请求数展示，也不实现 M7 退出确认界面；existing main/preload 具名接口保持。
+- M6 Mihomo 未接入，本轮只验证现有抓取子进程、LLM、App tmp，不宣称 Mihomo 生命周期验收通过。
+- 没有重打安装包、测试真实网站/付费模型，未做完整 UI E2E 或视觉复验（未改 UI）；既有安装版分页重试遗留项继续暂缓。
+- HTTP 远端已成功但本地尚未提交时仍可能重发；仅保证本地已提交成功结果不重算。
+- 仅本地提交；未 push、PR、发布，也未更改远端设置。
 
 
 ## 仓库首页简要更新（2026-10-20，Codex）

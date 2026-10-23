@@ -232,9 +232,11 @@ M3 审阅修正：`setModelKey` 拒绝空白或含 CR/LF 的输入，合法单�
 - 手动评分只要求当前 model、已保存 Key、非空 rubric，不要求 query/城市，也不使用抓取代理；不受 auto_score_enabled 影响。缺配置返回 VALIDATION_ERROR，任何 pipeline/rescore 活跃（含 stopping）返回 BUSY。清理等待运行和连接测试结束；浏览、清单编辑、CSV 不等待网络。
 - 新任务与岗位 pending 原子登记，旧成功分数保留；实际请求开始转 running，每次请求（含重试）增加 attempt_count。成功事务只更新 jobs 的 score/reason/scored_at/score_model/state/error 和对应任务/统计；失败只写 failed、last_score_error（可读脱敏文本）和任务 error，不改旧成功分与时间、正文或清单。0 分是 succeeded。
 - 新批次入库后立即排队评分，与后续抓取重叠；本轮每 job 一个任务，输入仅 title/company/description 加运行 rubric。不同 job 即使输入完全相同也独立请求，不缓存、不共享结果；后续来源/方向命中不重评。抓取结束后仍等待评分，提交后发送 jobs.changed 和 run 事件。
-- stop 立即停止后续派发与重试，可打断 RPM/退避；已发请求继续占用全局并发直至结束，成功评分照常保存，再转 stopped。未开始任务 cancelled，未完成岗位保留 pending 供续跑。resume 跳过 succeeded，其他任务获得新的三次尝试预算；启动将旧 running 任务转 pending，保留旧成功分。更完整的崩溃/退出故障注入仍属 M4。
+- stop 立即停止后续派发与重试，可打断 RPM/退避；已发请求继续占用全局并发直至结束，成功评分照常保存，再转 stopped。未开始任务 cancelled，未完成岗位保留 pending 供续跑。resume 跳过 succeeded，其他任务获得新的三次尝试预算；启动将旧 running 任务转 pending，保留旧成功分。崩溃/退出故障验证入口见 ACCEPTANCE 的 M4 后端验证边界。
 - 自动清理可能删除 stopped/interrupted 运行中的旧岗位，但保留较新的运行和任务。续跑派发时，岗位已不存在的任务记 failed，error.code=NOT_FOUND、retryable=false，不发模型请求、不增加 attempt_count、不恢复岗位；继续其他任务并按实际结果结束运行。缺失任务仍保留在运行详情，全部岗位已删时运行可正常结束为 failed，混合存活岗位时为 partial。
 - worker 在通知接收循环等阻塞返回后、发送 transport 前再次检查取消信号；未发请求以 CANCELLED 结算，任务最终 attempt_count 只计实际 transport 调用，保留此前累计尝试数。已经发出的请求仍按原停止语义保存成功结果。
+
+M4 退出补充：不新增 shutdown 协议命令。EOF 与 SIGTERM 均进入正常停止流程，继续接收在途评分结果并提交；CLI 同时启动 10 秒退出期限，超时结束本进程创建的 multiprocessing 子进程并强制退出，不等待 ThreadPoolExecutor 的解释器退出 join。该期限也覆盖 Electron 意外退出造成的 EOF/输出管道断开；Electron 原有 10 秒等待、SIGTERM、1 秒后 SIGKILL 的进程组停止保持。强制退出不伪造 stopped/succeeded，下一次持锁启动标 interrupted；正常 Stop 不受 Quit 时限影响。正常退出在抓取子进程结束后清空 App tmp，强制退出遗留 tmp 由下次启动清理。抓取线程在开始通知阻塞返回后同样复查停止信号，最终 attempt_count 不计未发起的抓取。
 
 ### HTTP 与限速
 

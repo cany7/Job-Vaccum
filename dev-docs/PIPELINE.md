@@ -96,6 +96,8 @@ Run status：创建后直接 running → succeeded / partial / failed；用户�
 
 重连 UI 通过 app.status/runs.detail 恢复显示。关闭窗口不停止，隐藏 Dock 图标；菜单栏图标按本机偏好显示，二者都隐藏时仍照常调度。显式 Quit 时若有运行（含 stopping）先由 main 弹出确认，空闲直接退出。Electron main/service 驻留并继续定时调度；renderer 关闭不影响任务。显式 Quit 先正常停止，退出等待初值 10 秒，超时由 Electron 结束所持有的 Python service 及本 App 子进程，不等待线程池无限退出；再次启动按中断恢复。不要扫描旧 PID 自动杀进程，Mihomo 端口占用明确报错。App 自有 tmp/ 在进程停止后清理，失败记录日志，不保存文件清理恢复状态；抓取恢复不依赖原始文件。成功评分及时持久化，中断后只恢复未完成评分。
 
+Python CLI 收到 EOF/SIGTERM 或接收循环退出时也设置 10 秒退出期限，避免 Electron 自身崩溃后无人执行 main 的退出定时器。期限内仍按正常停止保存成功结果；超时仅结束自己创建的 multiprocessing 子进程及自身，不等待 LLM 线程的解释器退出 join。正常 Stop 不启动该退出期限。未完成运行在下次持锁启动时标 interrupted；强制退出前来不及删除的 App tmp 在下次启动清理。
+
 ## 7. Mihomo 行为参考
 
 全新代理模块实现下面已有策略，不能只做随机选节点的简化替代：
