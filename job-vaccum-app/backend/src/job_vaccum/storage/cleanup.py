@@ -52,6 +52,7 @@ class Cleanup:
         db = self.repo.db
         return {'jobs': db.execute(f'SELECT count(*) FROM jobs WHERE {predicate}', values).fetchone()[0],
                 'runs': db.execute('SELECT count(*) FROM runs WHERE ' + ('0' if disabled else 'created_at < ?' if cutoff is not None else '1'), [cutoff] if cutoff is not None else []).fetchone()[0], 'applications': db.execute('SELECT count(*) FROM applications').fetchone()[0],
+                'firings': db.execute("SELECT count(*) FROM schedule_firings WHERE outcome!='waiting' AND " + ('0' if disabled else 'scheduled_at < ?' if cutoff is not None else '1'), [cutoff] if cutoff is not None else []).fetchone()[0],
                 'files': 0 if disabled else len(self.files(cutoff)), 'disabled': disabled}
 
     def execute(self, mode):
@@ -61,6 +62,7 @@ class Cleanup:
             predicate, values, cutoff, disabled = self.candidates(mode)
             deleted = db.execute(f'DELETE FROM jobs WHERE {predicate}', values).rowcount
             deleted_runs = db.execute('DELETE FROM runs WHERE ' + ('0' if disabled else 'created_at < ?' if cutoff is not None else '1'), [cutoff] if cutoff is not None else []).rowcount
+            deleted_firings = db.execute("DELETE FROM schedule_firings WHERE outcome!='waiting' AND " + ('0' if disabled else 'scheduled_at < ?' if cutoff is not None else '1'), [cutoff] if cutoff is not None else []).rowcount
         # File cleanup is separate: keep successfully committed database deletion.
         removed, failed = 0, []
         if not disabled:
@@ -81,7 +83,7 @@ class Cleanup:
                     failed.append(str(path.relative_to(self.root)))
         if failed:
             logging.error('CLEANUP_ERROR: Some application-owned files could not be removed.')
-        return {'deleted_jobs': deleted, 'deleted_runs': deleted_runs, 'deleted_files': removed, 'failed_files': failed}
+        return {'deleted_jobs': deleted, 'deleted_firings': deleted_firings, 'deleted_runs': deleted_runs, 'deleted_files': removed, 'failed_files': failed}
 
     def clear_tmp(self):
         directory = self.root / 'tmp'

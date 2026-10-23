@@ -22,6 +22,7 @@ from job_vaccum.storage.export import export_csv, validate_export
 from job_vaccum.storage.synthetic import import_synthetic
 from job_vaccum.pipeline.configuration import draft, proxy_origin, validate_model
 from job_vaccum.pipeline.runs import Runs
+from job_vaccum.pipeline.schedules import Schedules
 from job_vaccum.llm.pool import LlmPool
 
 
@@ -55,6 +56,8 @@ class Service:
         self.model_operations = {}
         self.runs = Runs(self.repo, self.inbox, llm=self.llm, **({"attempt": attempt} if attempt else {}))
 
+        self.schedules = Schedules(self.repo, self.runs)
+
     def dispatch(self, method, params, request_id=None):
         if method == "app.ping":
             if set(params) != {"message"} or not isinstance(params["message"], str) or len(params["message"]) > 256:
@@ -71,13 +74,19 @@ class Service:
                     "cleanup": {"status": "idle"}, "configuration_complete": self.configuration_complete(),
                     "storage": {"schema_version": SCHEMA_VERSION, "journal_mode": "wal"}}
         commands = {
+            "schedules.list": self.schedules.list, "schedules.save": self.schedules.save,
+            "schedules.delete": self.schedules.delete, "schedules.trigger": self.schedules.register,
+            "schedules.record_missed": lambda p: self.schedules.register(p, missed=True),
+            "internal.schedules_check": self.schedules.check,
+            "firings.cancel": self.schedules.change_firing,
+            "firings.delete": lambda p: self.schedules.change_firing(p, delete=True),
             "jobs.list": self.repo.list_jobs, "jobs.detail": self.repo.detail,
             "jobs.score": self.runs.score,
             "settings.save": lambda p: self.save_settings(p),
             "drafts.get": lambda p: draft(self.repo, "get", p),
             "drafts.save": lambda p: draft(self.repo, "save", p),
             "drafts.apply": lambda p: draft(self.repo, "apply", p),
-            "runs.preview": self.runs.preview, "runs.start": self.runs.start,
+            "runs.preview": self.runs.preview, "runs.start": self.schedules.manual_start,
             "runs.list": self.runs.list, "runs.detail": self.runs.detail,
             "runs.stop": self.runs.stop, "runs.resume": self.runs.resume,
             "directions.save": self.repo.direction_save, "directions.delete": self.repo.direction_delete,
@@ -211,6 +220,7 @@ def serve(root: Path, source: BinaryIO, destination: BinaryIO, *, clock=now_ms, 
             while not ended or service.operations or service.model_operations or service.runs.active():
                 if shutdown.is_set() and not ended:
                     ended = True
+                    service.schedules.close_waiting()
                     for token in list(service.model_operations):
                         service.llm.cancel(token)
                     active = service.runs.active()
@@ -220,6 +230,7 @@ def serve(root: Path, source: BinaryIO, destination: BinaryIO, *, clock=now_ms, 
                         service.runs.advance(event)
                     if not service.operations and not service.model_operations and not service.runs.active():
                         break
+                service.schedules.advance(event)
                 timeout = min(0.1, max(0, deadline - time.monotonic()))
                 try:
                     kind, payload = inbox.get(timeout=timeout)
@@ -229,8 +240,9 @@ def serve(root: Path, source: BinaryIO, destination: BinaryIO, *, clock=now_ms, 
                     if not service.operations and not service.model_operations and not service.runs.active():
                         try:
                             cleaned = service.cleanup.execute("automatic")
-                            if cleaned["deleted_jobs"] or cleaned["deleted_runs"] or cleaned["deleted_files"] or cleaned["failed_files"]:
+                            if cleaned["deleted_jobs"] or cleaned["deleted_firings"] or cleaned["deleted_runs"] or cleaned["deleted_files"] or cleaned["failed_files"]:
                                 event("cleanup.completed", cleaned)
+                                service.schedules.changed = bool(cleaned["deleted_firings"])
                                 if cleaned["deleted_jobs"]:
                                     event("jobs.changed", {})
                         except Exception:
@@ -270,6 +282,8 @@ def serve(root: Path, source: BinaryIO, destination: BinaryIO, *, clock=now_ms, 
                     response = {"type": "response", "id": request_id, "ok": False,
                                 "error": {"code": "INTERNAL_ERROR", "message": "Backend command failed.", "retryable": False}}
                 write(destination, response)
+                if succeeded and method in {"directions.delete", "cleanup.execute"}:
+                    service.schedules.changed = True
                 if succeeded and method == "cleanup.execute":
                     event("cleanup.completed", result)
                 if succeeded and (method.startswith(("applications.", "directions.", "queries."))

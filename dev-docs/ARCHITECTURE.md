@@ -95,7 +95,7 @@ Electron 获取单实例锁。Python service 还应持有该数据目录的进�
 
 模型 Key 和带认证的代理信息由 Electron main 使用 safeStorage 加密保存，只在需要时通过私有进程通道注入内存；renderer 只收到 `has_key`，不回显已保存明文。SQLite、配置快照、命令日志中不含秘密。加密不可用时明确报错，不静默明文落盘。[Electron safeStorage 文档](https://www.electronjs.org/docs/latest/api/safe-storage)
 
-关闭主窗口（红色关闭按钮）只关闭前端页面，保留 Electron main、Python service 和计划时钟；无人打开页面时仍到点启动任务。Dock 图标只在窗口打开时显示；菜单栏图标（Electron Tray）默认显示、可在设置关闭，提供打开窗口、状态与退出。两者都隐藏时可从 Spotlight/应用程序文件夹再次打开，单实例锁使其恢复原窗口。显式 Quit/Cmd+Q 执行有界退出，不承诺退出后调度；具体停止与退出规则见 PIPELINE。电脑休眠/关机时不保证准点运行，唤醒或重新打开后最多补跑一次；不添加系统守护进程、开机自启或自动唤醒。应用崩溃后依靠数据目录锁确认旧 service 已退出再恢复持久状态，不扫描遗留 PID 自动杀进程；Mihomo 端口占用明确报错。
+关闭主窗口（红色关闭按钮）只关闭前端页面，保留 Electron main、Python service 和计划时钟；无人打开页面时仍到点启动任务。Dock 图标只在窗口打开时显示；菜单栏图标（Electron Tray）默认显示、可在设置关闭，提供打开窗口、状态与退出。两者都隐藏时可从 Spotlight/应用程序文件夹再次打开，单实例锁使其恢复原窗口。显式 Quit/Cmd+Q 执行有界退出，不承诺退出后调度；具体停止与退出规则见 PIPELINE。电脑休眠/关机时不保证准点运行，唤醒或重新打开后不自动补跑，只合并记录各开启计划最近一次未运行和累计次数；不添加系统守护进程、开机自启或自动唤醒。应用崩溃后依靠数据目录锁确认旧 service 已退出再恢复持久状态，不扫描遗留 PID 自动杀进程；Mihomo 端口占用明确报错。
 
 ## 5. 工程初值
 

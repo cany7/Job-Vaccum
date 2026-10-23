@@ -24,8 +24,8 @@ JSON 数组适合保存来源展示信息、命中的 query，避免给每个附
 | run_tasks | id PK、run_id FK runs ON DELETE CASCADE、kind、stable_order、spec_json、status、attempt_count、stats_json、error_json；UNIQUE(run_id,stable_order,kind) |
 | run_jobs | run_id FK runs ON DELETE CASCADE、job_id FK jobs ON DELETE CASCADE、is_new；PK(run_id,job_id) |
 | settings | key PK、value_json；正式配置和引导草稿分 key 存储，均无秘密 |
-| schedules | id PK、enabled、direction_ids_json（null=全部，否则非空数组）、time_local（HH:mm）、weekdays_json（空=只跑一次）、timezone（IANA）、created_at、updated_at；最多 10 行由 service 校验 |
-| schedule_firings | id PK、schedule_id FK schedules ON DELETE CASCADE、scheduled_at、outcome（started/waiting/not_run/cancelled）、reason（asleep/app_closed/waited_too_long，可空）、missed_count、run_id 可空；UNIQUE(schedule_id,scheduled_at)；按 retention_days 清理 |
+| schedules | id PK、enabled、direction_ids_json（null=全部，否则非空数组）、time_local（HH:mm）、weekdays_json（空=只跑一次）、timezone（IANA）、created_at、updated_at、checked_at（已检查到的 UTC 毫秒）；最多 10 行由 service 校验 |
+| schedule_firings | id PK、schedule_id FK schedules ON DELETE CASCADE、scheduled_at、outcome（started/waiting/not_run/cancelled）、reason（asleep/app_closed/waited_too_long，可空）、missed_count、missed_since（累计首次错过时刻，可空）、run_id FK runs ON DELETE SET NULL 可空；UNIQUE(schedule_id,scheduled_at)；按 retention_days 清理 |
 
 保留上述 12 张表（另有 schema_version），不合并 jobs 与 applications，不新增抓取检查点表。job_directions 和 run_jobs 是多对多关联表；job_identities 是一对多查重身份表。run_tasks 不保存抓取结果文件引用。抓取任务 stable_order 在运行开始时确定；评分任务按登记顺序分配并持久化，续跑不重新编号。
 
@@ -67,6 +67,8 @@ settings 保存 auto_score_enabled（boolean，默认 true），runs.config_snap
 
 删除方向在一笔事务中删除 query、job_directions 和 jobs.queries_json 中该方向的元素，保留 jobs 与 sources_json。已启动运行的任务快照不变；任务完成发现方向已删除时仍可入库并关联 run，但不能重建方向或写回已删除标签。运行的配置快照用于诊断，不作为岗位显示标签的来源。
 
+同一事务中从 schedules.direction_ids_json 移除该方向；无剩余时保存空数组并关闭计划（仅删除产生的禁用状态允许空数组，显式保存仍须选择非空搜索或 null）。All searches 不受影响；等待触发开始时读取计划当前选择。
+
 单独删除 query 后可保留岗位上已命中的 query 文本；不因此删除方向标签。此文本不依赖 query 行继续存在。
 
 ## 4. 清理：保存清单中的完整岗位
@@ -81,7 +83,7 @@ retention_days=0 时跳过岗位、运行记录、计划触发记录及日志的
 
 删除 jobs 时级联删除该岗位的 identities、directions 关系和 run_jobs；清单中的 jobs 根本不进入候选集合。清理 runs 只删除 run_tasks、run_jobs 等运行信息，保留所有剩余 jobs、Applications 和方向／来源集合。
 
-运行记录、计划触发记录和日志按创建/触发时间保留 retention_days 天；手动清理删除全部运行记录、日志与临时文件，保留配置和凭据。与 pipeline/rescore/AI operation 互斥，忙时返回 BUSY，自动清理延后；UI 不显示成功直到完成。清理期间清单写入串行协调，避免加入与删除竞态。
+运行记录、计划触发记录和日志按创建/触发时间保留 retention_days 天；waiting 是尚未执行的队列项，清理不删除。清理运行后触发的 run_id 置空。手动清理同时删除全部非 waiting 触发记录；手动清理删除全部运行记录、日志与临时文件，保留配置和凭据。与 pipeline/rescore/AI operation 互斥，忙时返回 BUSY，自动清理延后；UI 不显示成功直到完成。清理期间清单写入串行协调，避免加入与删除竞态。
 
 数据库清理使用事务；文件清理独立执行，不保存待删路径或文件清理恢复状态。App 自有 tmp/ 在启动及运行结束、相关子进程退出后清空，失败记录日志。日志使用标准轮转并按 retention_days 期限清理；手动清理失败须报告未完成项，不显示全部成功，也不回滚已完成的数据库清理。禁止删除用户 Mihomo 配置、用户导出 CSV 或 App 数据根目录外的文件。
 
@@ -114,3 +116,10 @@ CSV 包含评分时间、可用薪资单位、方向集合、来源集合、完�
 迁移 003 增加 runs/run_tasks/run_jobs，既有 002 数据原地保留；schedule_firings 留 M7。2026-10-20 设计修正：runs.trigger_json 随 M2 Runs 修正迁移加入（旧运行为 null，按手动显示），schedules 与 schedule_firings 在 M7 迁移建立。任务 kind=retrieval/score，统计 JSON 不保存原始记录或 attrs。settings 各正式字段分别存 key，草稿使用 draft:search/rubric；普通代理认证仅运行时内存。M2 评分任务事务登记，但执行留 M3，存在 pending 评分的运行保持 running/scoring。
 
 M2 内容匹配使用现有 sources_json 中后来补入的有效 direct_url 参与不同外链边界判断，避免首个 LinkedIn 代表没有外链时误合并不同外部岗位；不回填或替换代表主字段。
+
+
+## M7 迁移补充
+
+schema 5 建立 schedules / schedule_firings，保留既有岗位、配置、运行及 trigger_json。额外 partial unique indexes 保证每个计划至多一个 waiting 和一个 not_run。触发登记、创建 run/tasks、更新 firing.run_id 与一次性计划关闭在同一事务提交。
+
+checked_at 是每个计划的检查水位，由 main 时钟调用 service 更新；新建/保存从保存时刻起计算，时钟倒退不降低水位。保留该水位可使已合并、手动删除或过期清理的触发也不会被旧定时通知重放。它不是额外运行快照或独立恢复表。

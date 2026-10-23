@@ -261,6 +261,19 @@ fake LLM 仅 Python 测试依赖注入，支持成功（含 0 分）、无效输
 
 - 迁移 004 给 runs 增加可空 trigger_json；schema_version=4，protocol_version=1 不变。旧运行 trigger 为 null，界面按 Manual 显示。
 - runs.preview/start 接受 direction_ids（省略或 null=全部启用搜索；非数组返回 VALIDATION_ERROR；未知 ID 忽略，空数组或剩余为空返回 VALIDATION_ERROR；所选搜索没有启用 query 时返回 VALIDATION_ERROR）。快照写入 direction_ids（null 或所选 ID）；只为所选且启用的方向生成任务。
-- 本阶段 runs.start 与 jobs.score 都写 trigger_json `{source:"manual"}`；schedule_id/firing_id 参数及 source=schedule 随 M7 计划功能加入，当前传入会按未知字段拒绝。
+- M3 初始阶段 runs.start 与 jobs.score 都写 trigger_json `{source:"manual"}`；M7 已补齐 schedule_id/firing_id 和自动触发 source=schedule，具体语义见下节。
 - RunSummary 增加 searches（null 或快照中的 `[{id,name}]`，名称取运行开始时的快照，方向删除后仍显示）与 trigger。preload 的 previewRun/startRun 接受可选 `{direction_ids}`。
 - Runs 页 runs.detail 以 task_page_size=200 逐页取回全部任务（评分运行只取 1 条，不显示任务表）。
+
+
+## M7：计划、时钟与桌面接口（schema 5）
+
+- `schedules.save {id?,enabled,direction_ids,time,weekdays,timezone}` 返回 `{id}`，更新必须提供完整字段。weekdays 为 Monday=0 至 Sunday=6，重复值去重；time 严格 HH:mm，timezone 必须为 zoneinfo 可识别 IANA 名称。direction_ids 必须为现有方向的非空数组或 null；无效字段和超过十个计划返回 VALIDATION_ERROR，更新/删除不存在 ID 返回 NOT_FOUND。附近计划不拒绝。
+- `schedules.list {}` 的 items 除原字段增加 created_at、updated_at、checked_at；next_at 是水位之后下一时刻，关闭计划为 null。运行中/等待计划置顶，其余按 time/id；firings 按 scheduled_at 倒序，包含全部 waiting、每计划一条 not_run 和最近五条 started，cancelled 不返回。Firing 增加 `missed_since:number|null`；run_id 在运行过期删除后为 null。
+- `schedules.trigger {schedule_id,scheduled_at}` 与 `schedules.record_missed {schedule_id,scheduled_at,reason,missed_count,missed_since?}` **只给 main**，不进入 businessMethods/preload。成功返回 Firing，已存在的同一触发返回原记录；已删除/合并且早于检查水位的旧通知返回 `{ignored:true}`。拒绝未来时刻、非该计划的到点时刻及尚未记账的关闭计划。record_missed 合并旧未运行数量及最早时间；不创建 run。
+- `internal.schedules_check {reason?:"asleep"|"app_closed"}` **只给 main**，返回 `{checked_at}`。省略 reason 为正常到点检查，传 reason 只记未运行。service 用同一 zoneinfo 算法计算范围、调用触发记账并推进水位；renderer 无法直接调用或注入时钟。
+- `firings.cancel {firing_id}` 仅接受 waiting，返回 `{cancelled:true}`；`firings.delete {firing_id}` 仅接受 not_run，返回 `{deleted:true}`。错误状态返回 VALIDATION_ERROR，不存在返回 NOT_FOUND。删除计划返回 `{deleted:true}`，级联删除触发但保留运行与历史 trigger。
+- `runs.start` 的 schedule_id 可用于计划内手动运行；direction_ids 可覆盖尚未保存的选择。带 firing_id 时只接受 not_run，若另传 schedule_id 必须匹配，不能再覆盖 direction_ids；成功后 firing 改 started。手动来源均为 manual；定时/等待启动为 schedule。忙时返回 BUSY，失败不消耗 not_run。任务尚未创建的 failed run 不能 resume，返回可操作的 VALIDATION_ERROR。
+- `cleanup.preview` 增加 `firings`；`cleanup.execute`/cleanup.completed 增加 `deleted_firings`。waiting 不作为清理候选；0 保留期仍关闭自动清理；计划配置不删除。
+- 计划保存/删除、等待开始、取消、未运行变化、删除搜索及触发记录清理发送 `schedules.updated {}`。run.updated/run.stats 继续用于自动启动的运行。
+- preload 具名 API：listSchedules、saveSchedule、deleteSchedule、cancelFiring、deleteFiring；startRun 接受上述扩展。主进程本机偏好具名 API `getDesktopPreferences()` / `setDesktopPreferences({show_menu_bar_icon:boolean})` 返回该偏好，默认 true，保存在 userData/desktop-preferences.json；不写业务 settings。两者沿用受信任 sender 验证。Appearance 的开关及 Runs 计划编辑器由后续 renderer 阶段接入。

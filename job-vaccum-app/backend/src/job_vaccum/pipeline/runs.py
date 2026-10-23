@@ -1,4 +1,5 @@
 """Persistent run state and serial dispatch. Only the service thread touches SQLite."""
+from contextlib import nullcontext
 import json
 import threading
 from uuid import uuid4
@@ -13,7 +14,6 @@ from job_vaccum.storage.filters import fields, string, strings, integer, choice,
 from job_vaccum.storage.repository import row_dict, JOIN
 
 ACTIVE = ('running', 'stopping')
-# Schedule triggers (source=schedule) arrive with M7.
 MANUAL = json.dumps({'source': 'manual'})
 
 
@@ -95,16 +95,17 @@ class Runs:
         count = len(self.queries(s)) * sum(c['enabled'] for c in s['cities']) * len(s['platforms'])
         return {'task_count': count, 'parameters': s['parameters'], 'auto_score_enabled': s['auto_score_enabled']}
 
-    def start(self, params):
+    def start(self, params, *, trigger=None, transaction=True):
         fields(params, {'direction_ids'})
         self.ensure_idle()
         snapshot = self.snapshot(params)
         identifier, now = str(uuid4()), self.repo.clock()
         queries = sorted(self.queries(snapshot), key=lambda q: q['id'])
         cities = sorted((c for c in snapshot['cities'] if c['enabled']), key=lambda c: c['id'])
-        with self.db:
-            self.db.execute('BEGIN IMMEDIATE')
-            self.db.execute("INSERT INTO runs (id,kind,status,created_at,started_at,config_snapshot_json,trigger_json) VALUES (?,'pipeline','running',?,?,?,?)", (identifier, now, now, json.dumps(snapshot), MANUAL))
+        with self.db if transaction else nullcontext():
+            if transaction:
+                self.db.execute('BEGIN IMMEDIATE')
+            self.db.execute("INSERT INTO runs (id,kind,status,created_at,started_at,config_snapshot_json,trigger_json) VALUES (?,'pipeline','running',?,?,?,?)", (identifier, now, now, json.dumps(snapshot), json.dumps(trigger) if trigger else MANUAL))
             order = 0
             for q in queries:
                 for city in cities:
@@ -225,6 +226,8 @@ class Runs:
         row = self.row(identifier)
         if row['status'] not in ('stopped', 'interrupted', 'partial', 'failed'):
             raise CommandError('Only an unfinished run can be resumed.')
+        if not self.db.execute('SELECT 1 FROM run_tasks WHERE run_id=?', (identifier,)).fetchone():
+            raise CommandError('This run failed before tasks were created. Fix the configuration and use Run again.')
         snapshot = json.loads(row['config_snapshot_json'])
         if self.db.execute("SELECT 1 FROM run_tasks WHERE run_id=? AND kind='score' AND status!='succeeded'", (identifier,)).fetchone() or snapshot['auto_score_enabled']:
             self.validate_scoring(snapshot)

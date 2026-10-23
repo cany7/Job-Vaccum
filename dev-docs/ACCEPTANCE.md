@@ -195,3 +195,19 @@ M4 后端交付不等同于 R01/R16 的计划部分或完整 M4 renderer 交付�
 ## M2 本步验收边界（2026-10-19）
 
 用户仅授权后端、协议、main/preload 具名方法和 TS 类型。B04/B08 本步验证运行列表、失效运行、is_new 筛选和导出，不改 renderer 的批次/记忆界面。评分任务持久化、开关及快照在本步验证，实际 LLM、评分重叠和停止在途评分留 M3/M4。真实平台仅在用户提供条件后测试。原项目路径不可访问时，只对文档明确语义建立合成回归，不将未核实旧规则标通过。
+
+
+## M7 后端与 main 验证入口
+
+本轮仅计划与桌面后台范围，不代表 M7 renderer、打包、签名或发布验收完成。
+
+| 验收边界 | 测试入口 |
+| --- | --- |
+| S01/S02/S05：累计错过、一次性、计划上限、校验、编辑水位、DST/时区 | backend/tests/test_schedules.py；注入 UTC 毫秒时钟，含 Chicago 跳时/重复、Lord Howe 半小时跳时、Kathmandu 非整点偏移 |
+| R01/R16/S06：互斥、FIFO、同计划等待替换、Stop/取消、rescore 占槽、重启/退出等待、删除搜索 | 同上；fake scraper/fake LLM，无网络 |
+| 迁移、原子性、保留期限、失败配置 | 同上及 test_storage/test_cleanup_export；触发更新故障回滚 run/tasks，保留期 0 与手动/自动清理 |
+| main 定时器/唤醒/迟到通知/串行检查/失败停止 | desktop/tests/schedule-clock.test.cjs；虚拟时钟 |
+| 菜单栏默认/持久开关、状态图标/进度与动作 | desktop/tests/desktop-presence.test.cjs |
+| S03/S04：无窗口/双图标隐藏时实际触发、Dock 恢复、偏好重启、Cmd+Q 确认分支及信号退出 | desktop/tests/e2e/schedules.spec.cjs；真实 Electron/service/SQLite，调度用无效合成配置形成明确 failed run，无网络；退出分支以合成 stopping 行和 dialog 适配测试 |
+
+原生确认框的实际人工/计算机检查结果、执行命令及环境只记 DEVELOPMENT-STATUS；虚拟时钟不等同于实际让 Mac 休眠数日。安装副本、Spotlight 在正式安装副本中的行为与签名发布验收仍保留后续阶段。

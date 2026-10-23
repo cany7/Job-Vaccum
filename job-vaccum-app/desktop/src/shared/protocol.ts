@@ -3,6 +3,8 @@ import type { ApiResult, ReadyInfo } from "./api";
 export const PROTOCOL_VERSION = 1;
 export const MAX_LINE_BYTES = 1024 * 1024;
 export const businessMethods = {
+  'schedules:list': 'schedules.list', 'schedules:save': 'schedules.save', 'schedules:delete': 'schedules.delete',
+  'firings:cancel': 'firings.cancel', 'firings:delete': 'firings.delete',
   'jobs:list': 'jobs.list', 'jobs:detail': 'jobs.detail',
   'jobs:score': 'jobs.score', 'model:test': 'model.test', 'operations:cancel': 'operations.cancel',
   'settings:get': 'settings.get', 'settings:save': 'settings.save',
@@ -17,7 +19,7 @@ export const businessMethods = {
   'cleanup:preview': 'cleanup.preview', 'cleanup:execute': 'cleanup.execute',
   'dev:import-synthetic': 'dev.import_synthetic',
 } as const;
-export type Method = "app.status" | "app.ping" | "app.diagnostics" | "export.csv" | "internal.credentials" | typeof businessMethods[keyof typeof businessMethods];
+export type Method = "app.status" | "app.ping" | "app.diagnostics" | "export.csv" | "internal.credentials" | "internal.schedules_check" | "schedules.trigger" | "schedules.record_missed" | typeof businessMethods[keyof typeof businessMethods];
 export interface Request {
   type: "request";
   id: string;

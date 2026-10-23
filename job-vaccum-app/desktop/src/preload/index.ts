@@ -3,6 +3,13 @@ import type { ConnectionState, JobVaccumApi, ServiceEvent } from "../shared/api"
 
 // Sandboxed preload only requires Electron; do not import runtime local modules.
 const api: JobVaccumApi = {
+  getDesktopPreferences: () => ipcRenderer.invoke('desktop:get-preferences'),
+  setDesktopPreferences: (params) => ipcRenderer.invoke('desktop:set-preferences', params),
+  listSchedules: () => ipcRenderer.invoke('schedules:list', {}),
+  saveSchedule: (params) => ipcRenderer.invoke('schedules:save', params),
+  deleteSchedule: (params) => ipcRenderer.invoke('schedules:delete', params),
+  cancelFiring: (params) => ipcRenderer.invoke('firings:cancel', params),
+  deleteFiring: (params) => ipcRenderer.invoke('firings:delete', params),
   getConnection: () => ipcRenderer.invoke("app:connection"),
   onConnectionChange(listener) {
     const receive = (_event: Electron.IpcRendererEvent, state: ConnectionState) => listener(state);

@@ -118,8 +118,19 @@ Electron main 负责时钟/唤醒触发，service 负责 schedules、schedule_fi
 
 到点触发：空闲则立即开始运行（outcome=started）；已有运行则记 waiting，当前运行（含手动评分）结束后 service 按 scheduled_at 先后开始最早的 waiting，一次只开始一个。每个计划最多一个 waiting：再次到点时旧 waiting 改为 not_run（reason=waited_too_long），新触发继续等待。waiting 可取消（outcome=cancelled，不再显示）；用户停止当前运行不影响 waiting。service 启动时把残留 waiting 记为 not_run（reason=app_closed）。
 
-不自动补跑。启动/唤醒时 main 为每个开启的计划计算自上次检查以来错过的时刻，只为最近一次记 not_run（reason=asleep 或 app_closed），并把同一计划之前未删除的 not_run 合并进 missed_count，不循环补跑或堆积多条。未运行由用户在界面手动 Run now 或删除；不为运行阻止系统休眠。修改计划从保存时刻向后计算，避免把新计划的过去时刻当错过任务。
+不自动补跑。启动/唤醒时 main 通知 service 按计划时区计算自上次检查以来错过的时刻，只为最近一次记 not_run（reason=asleep 或 app_closed），并把同一计划之前未删除的 not_run 合并进 missed_count，不循环补跑或堆积多条。未运行由用户在界面手动 Run now 或删除；不为运行阻止系统休眠。修改计划从保存时刻向后计算，避免把新计划的过去时刻当错过任务。
 
 运行按所选搜索生成任务：只取这些方向下启用的 query × 启用城市 × 启用平台，快照记录所选方向 ID（null=全部）及触发来源；去重、批次和统计仍按岗位全局计算，不因所选搜索不同而分库。
 
 夏令时工程规则：不存在的本地时刻取当天跳时后的第一个有效时刻；重复时刻只触发第一次。schedule_id + scheduled_at 唯一约束阻止定时器重复触发。App 完全退出期间不调度，重新打开只按上面的规则记录未运行。
+
+
+### M7 时钟与失败边界
+
+main 每秒通过内部 `internal.schedules_check` 检查一次；启动传 app_closed，powerMonitor suspend 暂停检查、resume 传 asleep。两次检查相隔超过 5 秒也按 asleep 记未运行，防止唤醒事件晚于计时器时误补跑；service 同样检查距持久水位的间隔，覆盖休眠前已发出、唤醒后才到达的请求。日历计算集中在 service 的 Python zoneinfo，main 不复制时区算法；这是对上文 main/service 职责的实现细化。星期采用 Monday=0 至 Sunday=6。检查的截止时刻由 service 可注入时钟提供，检查水位存于 schedules.checked_at。
+
+每次检查仅将每个计划最近的错过时刻与累计次数入账；保留 missed_since 供界面显示累计开始时间。显式 Quit/EOF/SIGTERM 在停止派发前将 waiting 合并为 app_closed；崩溃残留项在启动时执行同一处理。Stop 不关闭等待队列。
+
+到点或等待项开始时使用当前配置与当前凭据。若所选搜索、模型或代理配置已失效，创建携带具体 error 的 failed run，触发记为 started 并关联该失败运行；不重试、不伪造 asleep 原因，也不阻塞后续等待项。未创建任务的失败运行不可 Resume，修正配置后 Run again/Run now。未运行记录的手动 Run now 使用当前计划选择并改为 started，trigger.source=manual；自动触发 source=schedule。
+
+启动加载代理凭据失败时 main 停止计划时钟并显示原因，要求修正后重新打开，不静默丢弃认证。未读到模型 Key 时内存清空；不需要评分的计划可运行，需要评分的计划以 AUTH_ERROR 形成失败运行。

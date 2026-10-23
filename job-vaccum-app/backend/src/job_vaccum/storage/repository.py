@@ -73,6 +73,12 @@ class Repository:
                 raise CommandError('Direction not found.', 'NOT_FOUND')
             self.db.execute("""UPDATE jobs SET queries_json=coalesce((SELECT json_group_array(json(value))
                 FROM json_each(jobs.queries_json) WHERE json_extract(value,'$.direction_id') != ?),'[]')""", (identifier,))
+            for schedule_id, selected_json in self.db.execute('SELECT id,direction_ids_json FROM schedules').fetchall():
+                selected = json.loads(selected_json)
+                if selected is not None and identifier in selected:
+                    selected.remove(identifier)
+                    self.db.execute('UPDATE schedules SET direction_ids_json=?,enabled=CASE WHEN ? THEN enabled ELSE 0 END WHERE id=?',
+                                    (json.dumps(selected), bool(selected), schedule_id))
         return {'deleted': True}
 
     def direction_reorder(self, params):

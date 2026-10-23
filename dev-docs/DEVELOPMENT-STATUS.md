@@ -1,6 +1,44 @@
 # 开发状态
 
-最新状态：2026-10-23 M4 后端停止/恢复与运行完整性已完成并本地提交于 codex/dev（下节），未推送。200 项后端测试、17 项 Node 测试、6 项 Electron 冒烟及真实 Electron owner 强杀恢复验证通过。M4 renderer、R01/R16 计划部分（M7）、M6 Mihomo、安装包及真实模型复验仍未完成。
+最新状态：2026-10-23 M7 后端与 main 计划/后台生命周期已完成并本地提交于 codex/dev，未推送。225 项后端、22 项 Node、9 项 Electron 测试通过。M7 Runs/Appearance renderer、打包、签名和发布验收不在本轮授权范围。M4 后端既有交付保留，M5/M6 未在本轮扩展。
+
+
+## M7 后端与 main：计划、等待队列和桌面后台（2026-10-23，Codex）
+
+### 范围与实际交付
+
+用户明确授权 schedules/schedule_firings、schedules.* / firings.*、等待/未运行、DST 虚拟时钟，以及 main 的计划时钟、菜单栏/Dock、运行中 Quit 确认。开工阅读 README、SPEC、ARCHITECTURE、DATA-MODEL、CONTRACTS、PIPELINE、IMPLEMENTATION-PLAN、ACCEPTANCE 与既有实现；原生桌面部分读取两个设计 skill。沿用独立 codex/dev 工作区；`git fetch origin`、`git merge origin/main` 返回 Already up to date，保留之前两个本地提交。没有启动其他 Agent，没有升级依赖或改 lockfile，没有改 renderer。
+
+- **schema 5 与业务命令**：建立 schedules/schedule_firings、唯一触发及每计划一个 waiting/not_run 约束。计划完整保存/删除/列表、十个上限、HH:mm/IANA/星期/搜索校验、一次性触发自动关闭；列表运行/等待置顶、含 next_at 与最近五次 started。删除搜索同事务移除计划选择，无剩余自动关闭。删除计划保留历史运行；清理触发遵循 retention_days，0 关闭自动清理，waiting 不清理，运行清理后 run_id 置空。
+- **触发与等待**：firing/run/tasks 原子登记；单一运行槽包含 rescore，按 scheduled_at FIFO，Stop 当前运行不影响队列；取消 waiting、再次到点旧 waiting 归为 waited_too_long、正常退出及重启将残留 waiting 归为 app_closed。当前配置无效时形成明确 failed run，继续处理后续等待；尚未创建任务的失败运行须修正配置后 Run again，不能空 Resume 成功。
+- **未运行与时钟**：只保留每计划最近未运行，合并 missed_count/missed_since，支持手动 Run now 与删除。每计划 checked_at 水位防止删除/清理后旧通知重放，保存计划从当前时刻开始，系统时钟倒退不降低水位。main 每秒检查、响应 suspend/resume，启动/唤醒不补跑。时区运算集中于 Python zoneinfo，内部 schedules_check 负责计算与记账；main 不复制第二套 DST 算法。超过五秒的检查间隔按 missed 处理，service 水位判断同时覆盖休眠前发送、唤醒后到达的请求。修正 ARCHITECTURE 旧的“最多补跑一次”。
+- **桥接与凭据**：具名 schedules/firings preload API、扩展 runs.start 选择/来源、schedules.updated 事件。trigger/record_missed/internal.schedules_check 仅 main 可用，未暴露给 renderer。service ready 后 main 自动加载本数据目录的凭据，不依赖打开 Settings；模型 Key 不可读时清空内存并由评分配置检查报错，代理凭据不可读则停止计划时钟并明确报错，无静默无认证运行。
+- **桌面驻留**：菜单栏默认显示，空闲空心/运行实心图标，Open、状态及进度、Quit 菜单。get/setDesktopPreferences 保存 show_menu_bar_icon 到 main 本机 UI 偏好文件，重启保持。关窗切 accessory 隐藏 Dock，开窗恢复 regular；双图标隐藏时 service/时钟继续运行，可通过 activate/单实例打开恢复窗口。首次实际测试发现 dock.hide() 快速关闭时无效，改用 [Electron activation policy](https://www.electronjs.org/docs/latest/api/app#appsetactivationpolicypolicy) 后通过。
+- **Quit**：运行及 stopping 使用 SPEC 原文的原生确认框，Cancel 为默认/取消动作；关窗不确认，空闲直接退出。确认后沿用既有有界 service/进程组停止。SIGTERM/SIGINT 直接进入停止，不等待未回答的确认框；信号处理器在 ready 后注册，避免 Chromium 启动覆盖。
+
+### 验证环境与执行记录
+
+macOS 27.0.1（26A434）arm64；Python 3.13.12、SQLite 3.54.0、Node 26.12.1（声明 26.12.0，满足 engines）、npm 11.20.0、uv 0.13.5、Electron 44.9.0。使用原有独立环境；后端 uv run --locked。全部为临时 SQLite、fake scraper/fake LLM/合成配置，无真实招聘网站、代理或付费模型请求。
+
+| 命令 / 检查 | 实际结果 |
+| --- | --- |
+| backend `uv run --locked pytest -q` | 首轮 221 passed / 75.53s；第二轮 223 passed / 75.33s；**225 passed / 75.05s** |
+| backend `uv run --locked pytest -q tests/test_schedules.py` | 最终新增 25 项全部通过 / 0.37s，含 DST、迟到时钟消息、rescore 占槽和配置失败 |
+| desktop `npm test` | 类型检查、构建、22 Node tests passed / 23.48s |
+| desktop `npx --no-install playwright test --grep '@smoke\|M7'` | **9 passed / 约 1 分钟**；无窗口用例实际等待下一分钟到点（52.8s） |
+| desktop `npm run build && npx --no-install playwright test tests/e2e/schedules.spec.cjs --grep 'terminal shutdown'` | 修正信号注册时机后 1 passed / 0.71s |
+| `git diff --check` | 通过 |
+
+中间失败均保留事实：schema 升级初轮有旧测试常量/迁移夹具未更新；一次编辑误缩进了迁移回滚断言，修正后通过。Electron 第一轮 Dock 隐藏失败（7/8 passed），改用 activation policy 后 8/8 passed。新增终端退出用例两轮超时；定位为早期注册的 native signal handler 被 Chromium 替换，改至 ready 后后通过。调试中仅强杀明确归属本测试的 Electron PID，后端按 owner 丢失退出。部分命令误在仓库根执行 uv pytest/npm 后因未找到工程声明失败，改到 backend/desktop 后执行，没有安装新依赖。
+
+原生确认框已通过 CUA 在本 worktree 的 Electron 测试实例实际打开并查看截图：文案无截断，Esc 和 Cancel 保留窗口，Cmd+Q 再次打开，Quit 按钮实际退出；默认/取消索引由自动测试核对。未新增 renderer 布局或动效，未重复声明整个 renderer 的空/加载/错误、窄屏或 reduced-motion 验收。实际查看的 native test 使用 `tmp/job-vaccum-app/M1 lists Xd3Ohv` 合成目录；没有使用私人数据。CUA 按 Electron 名称曾选中另一个 worktree 的默认欢迎窗口，随后改用本 worktree 精确 App 路径进行验证，未操作另一工作区数据。
+
+### 前端交接与未做事项
+
+- M7 renderer 未实现：Runs 计划卡片/编辑、Waiting/Not run 详情、累计次数展示、附近时间提示、侧边栏 Next run，以及 Appearance 菜单栏开关/说明均留给前端。对应具名 API、字段和事件在 CONTRACTS 已列出；菜单栏开关当前可通过该 API 验证，尚无设置页控件。
+- 自动触发的无窗口 Electron 用例以没有有效搜索的合成配置形成 failed run，证明 main→service→SQLite 真实触发链路且不访问网站；成功 pipeline 与自动评分/等待则由后端 fake I/O 验证。DST 和长期休眠用虚拟时钟，没有实际休眠数日。
+- 未打包、签名、安装或执行发布验收；未验证正式安装副本的 Spotlight/Launchpad 项目。本轮实际验证开发实例的 activate、单实例重开、Dock 和后台时钟。
+- 未补做 M4 renderer/M5/M6；未 push、创建 PR、发布或修改远端设置。仅本地提交本阶段代码、测试和工程文档。
 
 
 ## M4 后端：停止、崩溃恢复与运行完整性（2026-10-23，Codex）
