@@ -2,6 +2,15 @@
 
 最新状态：2026-10-24 M6 后端与 M8 本机 MCP 已汇合，M5 Electron 草稿桥接已补齐；审阅第四点「清理运行后保留岗位卡在 pending」已修复并完成新增定向验证。M5 renderer 引导/Skip、M9 仍未实施；筛选规则问题按用户要求暂缓。既有验证保留在各阶段记录，本轮检查与限制见下节。
 
+## M5 桥接与清理修复推送验证（2026-10-24，Codex）
+
+用户授权推送已有提交、创建 PR 并同步 Claude 工作区。fetch/merge origin/main 无新增变更；PR #19 包含 a915961、2ae286a，不包含根目录两份未提交的筛除文档。
+
+- 本地 backend `uv run --locked pytest -q`：354 passed / 79.09s；desktop `npm test`：类型检查、构建及 25 项 Node 测试通过；`npx --no-install playwright test tests/e2e/drafts-bridge.spec.cjs`：1 passed / 3.4s。
+- PR 首轮 CI run 40075661701：Backend、Frontend 通过，Desktop E2E 6 passed / 1 failed。失败为原有 shell 冒烟用例的具名接口清单遗漏新增 `generateDraft`，实际桥接接口符合本次契约。
+- 仅补齐该接口清单，保留完整接口集合断言；本地 `npx --no-install playwright test tests/e2e/desktop.spec.cjs --grep 'shell, About with real backend'`：1 passed / 1.8s。未改产品代码、依赖或筛除规则；合并结果以 PR/Actions 为准。
+- 测试沿用 macOS arm64 和既定锁定环境，使用合成数据，无真实抓取或模型调用，未做安装包验证。
+
 ## 清理运行后评分状态修复（2026-10-24，Codex）
 
 用户授权修复第四点并本地提交。沿用 codex/dev，开工工作区干净，fetch/merge origin/main 为 Already up to date；保留此前 M5 桥接提交，不修改筛选规则、前端、依赖或数据库结构。
