@@ -125,4 +125,14 @@ export function registerBusinessIpc(backend: Backend, getWindow: () => BrowserWi
     }
     getWindow()?.webContents.send('app:service-event', event);
   });
+  // Background schedules also need credentials when no renderer has requested settings.
+  return async () => {
+    const proxy = await credentials.inject();
+    if (!proxy.ok) throw new Error(proxy.error.message);
+    const model = await modelKey.inject();
+    // AUTH_ERROR clears the unreadable model key; scoring validation records
+    // the failure, while schedules with automatic scoring off remain runnable.
+    if (!model.ok && model.error.code !== 'AUTH_ERROR') throw new Error(model.error.message);
+  };
+
 }

@@ -313,7 +313,7 @@ def test_m1_to_m2_migration_preserves_data_and_failure_rolls_back(tmp_path):
         assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='runs'").fetchone()
     with closing(connect(path)) as db:
         assert Repository(db).list_jobs({}) == before
-        assert db.execute('SELECT version FROM schema_version').fetchone()[0] == 4
+        assert db.execute('SELECT version FROM schema_version').fetchone()[0] == 5
 
 
 def test_jobspy_whitelist_attrs_missing_values_and_native_shapes():
@@ -753,7 +753,7 @@ def test_m2_to_trigger_migration_keeps_runs_as_untriggered(tmp_path):
     db = connect(path)
     s = Service(db, tmp_path, clock=lambda: NOW)
     try:
-        assert db.execute('SELECT version FROM schema_version').fetchone()[0] == 4
+        assert db.execute('SELECT version FROM schema_version').fetchone()[0] == 5
         item = s.dispatch('runs.list', {})['items'][0]
         assert item['id'] == 'old' and item['trigger'] is None and item['searches'] is None
     finally:

@@ -1,14 +1,34 @@
 import argparse
 import logging
 import multiprocessing
+import os
 from pathlib import Path
 import signal
 import sqlite3
 import sys
+import threading
 
 from job_vaccum.service.server import serve
 from job_vaccum.storage.database import DatabaseError
 from job_vaccum.storage.paths import DataDirectoryBusy, data_directory
+
+
+def bound_shutdown(shutdown):
+    """EOF also occurs when Electron dies, so do not rely on its quit timer.
+
+    This daemon only ends this service and children it created; it never reads
+    persisted PIDs. SQLite commits already completed remain recoverable.
+    """
+    shutdown.wait()
+    threading.Event().wait(10)
+    logging.error('SHUTDOWN_TIMEOUT: Ending unfinished backend work.')
+    for child in multiprocessing.active_children():
+        try:
+            child.kill()
+            child.join(0.5)
+        except (OSError, ValueError):
+            pass  # The scrape supervisor may have just reaped this child.
+    os._exit(0)  # ThreadPoolExecutor's atexit join must not extend the deadline.
 
 
 def main() -> int:
@@ -22,10 +42,12 @@ def main() -> int:
         parser.error("--data-dir must be absolute")
     logging.basicConfig(stream=sys.stderr, level=logging.INFO,
                         format="%(levelname)s %(message)s")
-    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    shutdown = threading.Event()
+    signal.signal(signal.SIGTERM, lambda *_: shutdown.set())
     try:
         with data_directory(args.data_dir) as root:
-            serve(root, sys.stdin.buffer, sys.stdout.buffer, enable_dev=args.enable_dev_commands)
+            threading.Thread(target=bound_shutdown, args=(shutdown,), name='shutdown-deadline', daemon=True).start()
+            serve(root, sys.stdin.buffer, sys.stdout.buffer, enable_dev=args.enable_dev_commands, shutdown=shutdown)
     except DataDirectoryBusy:
         logging.error("BUSY: Another backend owns this data directory.")
         return 2

@@ -10,6 +10,11 @@ if (mode === 'never-ready') {
   process.exit(2);
 } else {
   process.stdout.write(JSON.stringify(ready) + '\n');
+  let starts = 0;
+  if (mode === 'stubborn-child') {
+    process.on('SIGTERM', () => {});
+    setInterval(() => {}, 1000);
+  }
   let outputs = [];
   let flushing = false;
   function flush() {
@@ -30,6 +35,24 @@ if (mode === 'never-ready') {
   }
   readline.createInterface({ input: process.stdin }).on('line', (line) => {
     const request = JSON.parse(line);
+    if (mode === 'start-timeout') {
+      if (request.method === 'runs.start') {
+        starts++;
+        setTimeout(() => process.stdout.write(JSON.stringify({ type: 'response', id: request.id, ok: true,
+          result: { run_id: 'accepted-once' } }) + '\n'), 150);
+      } else {
+        process.stdout.write(JSON.stringify({ type: 'response', id: request.id, ok: true,
+          result: { active_run: { run_id: 'accepted-once' }, starts } }) + '\n');
+      }
+      return;
+    }
+    if (mode === 'stubborn-child') {
+      const child = require('node:child_process').spawn(process.execPath,
+        ['-e', "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], { stdio: 'inherit' });
+      process.stdout.write(JSON.stringify({ type: 'response', id: request.id, ok: true,
+        result: { child_pid: child.pid } }) + '\n');
+      return;
+    }
     if (mode === 'owned-child') {
       const child = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'inherit' });
       process.stdout.write(JSON.stringify({ type: 'response', id: request.id, ok: true, result: { child_pid: child.pid } }) + '\n');

@@ -1,3 +1,5 @@
+import type { SchedulesApi } from './schedules';
+export type * from './schedules';
 import type { ApiError, ApiResult } from './api';
 import type { PipelineSettings, SettingsPatch, RunStats, ActiveRun, RunsApi } from './runs';
 export type * from './runs';
@@ -43,7 +45,7 @@ export interface AddItem { job_id: string; outcome: 'added' | 'already_present' 
 export interface AddManyResult { items: AddItem[]; counts: Record<AddItem['outcome'], number> }
 export type StatusItem = ({ job_id: string; outcome: 'updated' } & Omit<RestoreItem, 'notes' | 'added_at'>)
   | { job_id: string; outcome: 'not_found' };
-export interface CleanupResult { deleted_jobs: number; deleted_runs: number; deleted_files: number; failed_files: string[] }
+export interface CleanupResult { deleted_jobs: number; deleted_runs: number; deleted_firings: number; deleted_files: number; failed_files: string[] }
 export interface ExportCsvParams {
   scope: Scope; filter?: FilterSpec & { sort?: Sort }; range: 'filtered' | 'all';
   include_jd: boolean; destination_token: string;
@@ -51,12 +53,12 @@ export interface ExportCsvParams {
 export type ServiceEvent =
   | { type: 'event'; name: 'run.updated'; seq: number; data: ActiveRun }
   | { type: 'event'; name: 'run.stats'; seq: number; data: { run_id: string } & Omit<RunStats, 'directions'> }
-  | { type: 'event'; name: 'jobs.changed'; seq: number; data: Record<string, never> }
+  | { type: 'event'; name: 'jobs.changed' | 'schedules.updated'; seq: number; data: Record<string, never> }
   | { type: 'event'; name: 'cleanup.completed'; seq: number; data: CleanupResult }
   | { type: 'event'; name: 'operation.completed'; seq: number; data: { operation_id: string; row_count: number } }
   | { type: 'event'; name: 'model.test.completed'; seq: number; data: { operation_id: string; connected: true } }
   | { type: 'event'; name: 'operation.failed'; seq: number; data: { operation_id: string; error: ApiError } };
-export interface BusinessApi extends RunsApi {
+export interface BusinessApi extends RunsApi, SchedulesApi {
   listJobs(params: FilterSpec & { sort?: Sort; page?: number; page_size?: number }): Promise<ApiResult<{ items: JobSummary[]; total: number }>>;
   getJobDetail(params: { job_id: string }): Promise<ApiResult<JobDetail>>;
   getSettings(): Promise<ApiResult<Settings>>;
@@ -72,7 +74,7 @@ export interface BusinessApi extends RunsApi {
   setApplicationStatus(params: { job_ids: string[]; status: ApplicationStatus }): Promise<ApiResult<{ items: StatusItem[]; counts: { updated: number; not_found: number } }>>;
   removeApplications(params: { job_ids: string[] }): Promise<ApiResult<{ items: ApplicationRecord[]; removed_count: number; not_found: string[] }>>;
   restoreApplications(params: { items: RestoreItem[] }): Promise<ApiResult<{ items: { job_id: string; outcome: 'restored' | 'not_found' }[]; counts: { restored: number; not_found: number } }>>;
-  previewCleanup(params: { mode: 'manual' | 'automatic' }): Promise<ApiResult<{ jobs: number; runs: number; applications: number; files: number; disabled: boolean }>>;
+  previewCleanup(params: { mode: 'manual' | 'automatic' }): Promise<ApiResult<{ jobs: number; runs: number; firings: number; applications: number; files: number; disabled: boolean }>>;
   executeCleanup(params: { mode: 'manual' }): Promise<ApiResult<CleanupResult>>;
   importSyntheticJobs(params: { count?: number }): Promise<ApiResult<{ added_count: number; existing_count: number }>>;
   chooseCsvDestination(): Promise<ApiResult<{ destination_token: string } | null>>;

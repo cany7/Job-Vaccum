@@ -194,11 +194,16 @@ def process_attempt(spec, parameters, proxy, stop, scrape=None):
 
 
 def retrieve(spec, parameters, proxy, stop, attempt=process_attempt, on_attempt=lambda: None):
-    result = {'records': [], 'warnings': [], 'http_requests': 0, 'http_429': 0, 'error': None}
+    result = {'records': [], 'warnings': [], 'http_requests': 0, 'http_429': 0, 'error': None, 'attempts': 0}
     for index in range(parameters['max_attempts']):
         if stop.is_set():
             break
         on_attempt()
+        # The notification can block on the receiver queue. Stop may arrive
+        # while it is blocked, before any worker/network call has started.
+        if stop.is_set():
+            break
+        result['attempts'] += 1
         current = attempt(spec, parameters, proxy, stop)
         result['records'].extend(current['records'])
         result['warnings'].extend(w for w in current.get('warnings', []) if w not in result['warnings'])

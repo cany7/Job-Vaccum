@@ -60,6 +60,8 @@ export interface AppInfo {
 }
 
 export interface JobVaccumApi extends BusinessApi {
+  getDesktopPreferences(): Promise<{ show_menu_bar_icon: boolean }>;
+  setDesktopPreferences(params: { show_menu_bar_icon: boolean }): Promise<{ show_menu_bar_icon: boolean }>;
   getConnection(): Promise<ConnectionState>;
   /** Returns an unsubscribe function. */
   onConnectionChange(listener: (state: ConnectionState) => void): () => void;

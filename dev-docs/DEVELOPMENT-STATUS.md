@@ -1,6 +1,145 @@
 # 开发状态
 
-最新状态：2026-10-20 Jobs/Shortlist 评分与批次界面修正已实现并本地提交于 codex/dev，未推送（见下节）。M2 Runs 修正已通过 PR #13 合入 main（3a6816f）；运行计划本体仍属 M7。真实模型、安装包未补验，安装版分页重试遗留失败仍暂缓。
+最新状态：2026-10-23 已补充 M8/M9 MCP 开发设计，尚未实现这两个阶段。本次对 codex/dev 既有 M4、M7 后端/main、M5 Python 草稿生成提交统一验证：**265 项后端、22 项 Node、9 项 Electron 测试通过**，类型检查与构建通过。M5 Electron generate 桥接与 renderer、M7 计划配置界面、M6、完整引导/Skip、打包和签名仍需各自后续交付。
+
+## M8/M9 规划与既有 Codex 提交的交付验证（2026-10-23，Codex）
+
+用户授权将 M8/M9 已确认规划写入 dev-docs，并与 Codex worktree 的未推送提交一起推送，按既定 PR/CI 流程交付。fetch 后确认 codex/dev 相对 origin/main 有 4 个业务提交（M4 恢复、M7 后端/main、计划关联修复、M5 草稿生成）；claude/dev-env 与 origin/main 相同，没有额外业务提交，两个工作区开工时均干净。Claude 相对其旧远端分支显示的领先提交已全部在主线。
+
+- 新增 `M8-M9-MCP.md`：M8 的 15 个 tools、M9 的 6 个 tools、进程职责、手动岗位来源/清单关系、计划部分更新、Run 轻量查询、配置边界、实施顺序与验收。MCP 摘要默认/最多 50、IDs 默认/最多 200，完整返回评分理由/备注，不增加 token 计数、字段截短或动态缩页。
+- README、SPEC、IMPLEMENTATION-PLAN 增加对应入口；AGENTS 阶段指引延伸至 M8/M9。没有实施 MCP、变更产品依赖或改动业务代码；先前各节“本地未推送”描述保留为当时记录。
+- 估算只使用用户本轮明确提供的 `tmp/results`，结果原文未进入 Git；tokenizer 仅用于一次性本地估算，没有加入项目依赖。回归仍使用合成数据、fake scraper/fake LLM 和 loopback 测试服务，无真实招聘网站、私人凭据或付费模型调用。
+
+验证环境：macOS arm64，Node 26.12.1、npm 11.20.0、uv 0.13.5、Python 3.13.12 / SQLite 3.54.0。
+
+| 命令 / 检查 | 实际结果 |
+| --- | --- |
+| `git fetch origin`、`git merge origin/main` | 主线已包含，Already up to date |
+| backend `uv run --locked pytest -q` | **265 passed / 76.16s** |
+| desktop `npm test` | 类型检查、生产构建通过；**22 Node tests passed / 23.51s** |
+| desktop `npx --no-install playwright test --grep '@smoke\|M7'` | **9 passed / 1.1m**；含真实无窗口计划触发、关闭/重开、Quit 与有界退出 |
+| 新增文档相对链接和入口检查 | 6 处链接有效，M8 15 tools / M9 6 tools |
+| `git diff --check` | 通过 |
+
+这里只记录已执行的本地验证；远端 PR、自动合并和 main CI 结果以本次 GitHub 交付记录为准。未执行完整 Electron 套件、安装包验收或真实 MCP 客户端联调；M8/M9 文档中的验收条目均为未来实施要求，不是本轮通过结果。
+
+## M5 Python 后端：搜索草稿与评分模板生成（2026-10-23，Codex）
+
+用户授权完成 M5 后端的 drafts.generate，要求异步 operation、取消、模型输出校验、有限重试、失败输入不丢、两段 prompt 集中及 fake LLM 测试。阅读 README、SPEC、ARCHITECTURE、DATA-MODEL、CONTRACTS、PIPELINE、IMPLEMENTATION-PLAN、ACCEPTANCE 和既有实现；沿用独立 codex/dev 工作区。开工 `git fetch origin`、`git merge origin/main` 返回 Already up to date，保留此前四个本地提交。没有启动其他 Agent、修改依赖/lockfile、读取旧项目私人内容或调用真实服务。
+
+- **生成与 operation**：新增 drafts.generate，复用同一个 LlmPool 的并发/RPM、3 次尝试、5/10 秒退避及 Retry-After；响应先返回 operation_id，成功落库后 drafts.generated，失败 operation.failed。app.status 展示生成 kind、draft_kind 和 running/cancelling。取消排队、RPM/退避可打断，在途请求结束前继续占并发、结果丢弃；清理互斥复用已有入口。
+- **输入与结果**：沿用 settings 表，input 与 editable content 分 key 存储，未新增表/迁移、历史副本或持久 operation。drafts.save 支持 input-only 自动保存未完成文本；generate 在检查非空文本/model/Key 前保存结构合法的输入。失败、取消和重启保留输入及最后草稿；成功生成只改草稿，Apply 才写正式设置。后来成功保存、Apply 或重新生成同一种草稿会取消旧生成，防止迟到结果覆盖。写库失败发送受控 STORAGE_ERROR，回滚并保留旧草稿，service 不退出。
+- **输出与 prompt**：`backend/src/job_vaccum/llm/drafts.py` 集中两段 prompt、请求上下文和生成校验。搜索要求一个方向和 2～3 query，严格字段/类型/非空/半径校验，不接受模型 ID；支持一轮简短 clarification，追问不可 Apply，回答后再追问算无效生成。rubric 校验非空文本、拒绝 JSON 包装和外层代码围栏；不强制 Markdown 固定章节。复用现有 qualifications，多方向全局 rubric，不推断身份由 prompt 明确约束；事实准确性仍需用户审阅。正式评分 JSON 格式仍由评分调用附加。
+- **契约及交接**：CONTRACTS 补充完整请求、返回、新事件、输入保存、取消和追问语义；DATA-MODEL、ACCEPTANCE、backend README 同步。只改 Python 及文档；Electron shared/main/preload 新 generate 方法和事件类型需后续接入，既有 drafts.get/save/apply 内容字段调用继续兼容。没有宣称完整 M5 引导出口或 UI 验收完成。
+
+验证环境：macOS 27.0.1（26A434）arm64；uv 0.13.5，`uv run --locked` Python 3.13.12 / SQLite 3.54.0。全部使用临时 SQLite、合成用户输入/简历、注入 FakeLlm；已有全量测试另含 loopback 假 HTTP server、fake scraper 及 M4 故障进程。未访问真实招聘网站、代理或付费模型，没有私人凭据。
+
+| 命令 / 检查 | 实际结果 |
+| --- | --- |
+| backend `uv run --locked pytest -q tests/test_drafts.py tests/test_scoring.py tests/test_pipeline.py tests/test_schedules.py` | 首轮 127 passed / 1 failed，1.48s；唯一失败为新测试误传 jobs.detail 的 id 而非 job_id，修正测试参数 |
+| backend `uv run --locked pytest -q` | **265 passed / 75.45s**，包含新增 36 项草稿测试 |
+| backend `uv run --locked python -c 'import platform, sqlite3; print(platform.python_version(), platform.machine(), sqlite3.sqlite_version)'` | 3.13.12 / arm64 / 3.54.0 |
+| `git diff --check` | 通过 |
+
+新增测试覆盖生成成功/一轮追问/严格格式、无效生成三次耗尽与重试成功、认证不重试、输入-only 保存和原子校验、缺模型/Key/文本后的输入保留、旧草稿与正式配置不变、重开数据库读取、rubric 编辑/Apply 后实际 fake 评分得到 0 分、排队/RPM/退避/在途取消、共享连接测试与评分并发、响应查询和备注、清理 BUSY、用户更新后丢弃旧结果、生成写库故障回滚、真实 service 接收循环的响应/事件顺序与无 Key 回显。
+
+未运行 desktop/Node/Electron、视觉或安装包验收；未验证真实模型生成质量，未完成前端引导/Skip。仅本地提交，不 push、提 PR 或发布。
+
+
+## M7 P2 修复：应用搜索草稿同步清理计划关联（2026-10-23，Codex）
+
+复核 a6190a2 的审阅结论属实：drafts.apply(search) 直接删除/重建全部方向，未执行 direction_delete 中的计划关联清理，也未标记 schedules.updated。先添加回归用例，修复前 2 failed / 2 passed，分别复现失效 direction_ids 保留和缺少更新事件。
+
+在搜索草稿原有事务中，将指定搜索的计划 direction_ids 清空、enabled=false；All searches（null）保持原样。仅成功应用 search 草稿后标记 schedules.updated，在成功响应之后发送；rubric 草稿和失败事务不发送该事件。没有抽取新框架、修改迁移、依赖、renderer 或 main。
+
+新增四项回归覆盖：保存草稿不改计划；应用后已启用/已关闭的指定搜索计划均清空并关闭、next_at=null；原到点时刻不再生成失败运行；All searches 使用新搜索正常运行；真实 service 接收循环的成功响应/事件顺序；rubric 不改计划；插入新方向失败时旧方向、城市和计划共同回滚且不发送 schedules.updated。
+
+沿用上节环境和合成 fake I/O，未访问网络或私人凭据。开工 `git fetch origin` / `git merge origin/main` 返回 Already up to date，保留已有本地提交。backend `uv run --locked pytest -q tests/test_schedules.py tests/test_pipeline.py tests/test_business_protocol.py`：**86 passed / 1.01s**；`git diff --check` 通过。本次仅复跑相关后端测试，未重跑后端全量或桌面测试；此前 225 项全量结果属于上一轮交付。仅本地 commit，不 push。
+
+
+## M7 后端与 main：计划、等待队列和桌面后台（2026-10-23，Codex）
+
+### 范围与实际交付
+
+用户明确授权 schedules/schedule_firings、schedules.* / firings.*、等待/未运行、DST 虚拟时钟，以及 main 的计划时钟、菜单栏/Dock、运行中 Quit 确认。开工阅读 README、SPEC、ARCHITECTURE、DATA-MODEL、CONTRACTS、PIPELINE、IMPLEMENTATION-PLAN、ACCEPTANCE 与既有实现；原生桌面部分读取两个设计 skill。沿用独立 codex/dev 工作区；`git fetch origin`、`git merge origin/main` 返回 Already up to date，保留之前两个本地提交。没有启动其他 Agent，没有升级依赖或改 lockfile，没有改 renderer。
+
+- **schema 5 与业务命令**：建立 schedules/schedule_firings、唯一触发及每计划一个 waiting/not_run 约束。计划完整保存/删除/列表、十个上限、HH:mm/IANA/星期/搜索校验、一次性触发自动关闭；列表运行/等待置顶、含 next_at 与最近五次 started。删除搜索同事务移除计划选择，无剩余自动关闭。删除计划保留历史运行；清理触发遵循 retention_days，0 关闭自动清理，waiting 不清理，运行清理后 run_id 置空。
+- **触发与等待**：firing/run/tasks 原子登记；单一运行槽包含 rescore，按 scheduled_at FIFO，Stop 当前运行不影响队列；取消 waiting、再次到点旧 waiting 归为 waited_too_long、正常退出及重启将残留 waiting 归为 app_closed。当前配置无效时形成明确 failed run，继续处理后续等待；尚未创建任务的失败运行须修正配置后 Run again，不能空 Resume 成功。
+- **未运行与时钟**：只保留每计划最近未运行，合并 missed_count/missed_since，支持手动 Run now 与删除。每计划 checked_at 水位防止删除/清理后旧通知重放，保存计划从当前时刻开始，系统时钟倒退不降低水位。main 每秒检查、响应 suspend/resume，启动/唤醒不补跑。时区运算集中于 Python zoneinfo，内部 schedules_check 负责计算与记账；main 不复制第二套 DST 算法。超过五秒的检查间隔按 missed 处理，service 水位判断同时覆盖休眠前发送、唤醒后到达的请求。修正 ARCHITECTURE 旧的“最多补跑一次”。
+- **桥接与凭据**：具名 schedules/firings preload API、扩展 runs.start 选择/来源、schedules.updated 事件。trigger/record_missed/internal.schedules_check 仅 main 可用，未暴露给 renderer。service ready 后 main 自动加载本数据目录的凭据，不依赖打开 Settings；模型 Key 不可读时清空内存并由评分配置检查报错，代理凭据不可读则停止计划时钟并明确报错，无静默无认证运行。
+- **桌面驻留**：菜单栏默认显示，空闲空心/运行实心图标，Open、状态及进度、Quit 菜单。get/setDesktopPreferences 保存 show_menu_bar_icon 到 main 本机 UI 偏好文件，重启保持。关窗切 accessory 隐藏 Dock，开窗恢复 regular；双图标隐藏时 service/时钟继续运行，可通过 activate/单实例打开恢复窗口。首次实际测试发现 dock.hide() 快速关闭时无效，改用 [Electron activation policy](https://www.electronjs.org/docs/latest/api/app#appsetactivationpolicypolicy) 后通过。
+- **Quit**：运行及 stopping 使用 SPEC 原文的原生确认框，Cancel 为默认/取消动作；关窗不确认，空闲直接退出。确认后沿用既有有界 service/进程组停止。SIGTERM/SIGINT 直接进入停止，不等待未回答的确认框；信号处理器在 ready 后注册，避免 Chromium 启动覆盖。
+
+### 验证环境与执行记录
+
+macOS 27.0.1（26A434）arm64；Python 3.13.12、SQLite 3.54.0、Node 26.12.1（声明 26.12.0，满足 engines）、npm 11.20.0、uv 0.13.5、Electron 44.9.0。使用原有独立环境；后端 uv run --locked。全部为临时 SQLite、fake scraper/fake LLM/合成配置，无真实招聘网站、代理或付费模型请求。
+
+| 命令 / 检查 | 实际结果 |
+| --- | --- |
+| backend `uv run --locked pytest -q` | 首轮 221 passed / 75.53s；第二轮 223 passed / 75.33s；**225 passed / 75.05s** |
+| backend `uv run --locked pytest -q tests/test_schedules.py` | 最终新增 25 项全部通过 / 0.37s，含 DST、迟到时钟消息、rescore 占槽和配置失败 |
+| desktop `npm test` | 类型检查、构建、22 Node tests passed / 23.48s |
+| desktop `npx --no-install playwright test --grep '@smoke\|M7'` | **9 passed / 约 1 分钟**；无窗口用例实际等待下一分钟到点（52.8s） |
+| desktop `npm run build && npx --no-install playwright test tests/e2e/schedules.spec.cjs --grep 'terminal shutdown'` | 修正信号注册时机后 1 passed / 0.71s |
+| `git diff --check` | 通过 |
+
+中间失败均保留事实：schema 升级初轮有旧测试常量/迁移夹具未更新；一次编辑误缩进了迁移回滚断言，修正后通过。Electron 第一轮 Dock 隐藏失败（7/8 passed），改用 activation policy 后 8/8 passed。新增终端退出用例两轮超时；定位为早期注册的 native signal handler 被 Chromium 替换，改至 ready 后后通过。调试中仅强杀明确归属本测试的 Electron PID，后端按 owner 丢失退出。部分命令误在仓库根执行 uv pytest/npm 后因未找到工程声明失败，改到 backend/desktop 后执行，没有安装新依赖。
+
+原生确认框已通过 CUA 在本 worktree 的 Electron 测试实例实际打开并查看截图：文案无截断，Esc 和 Cancel 保留窗口，Cmd+Q 再次打开，Quit 按钮实际退出；默认/取消索引由自动测试核对。未新增 renderer 布局或动效，未重复声明整个 renderer 的空/加载/错误、窄屏或 reduced-motion 验收。实际查看的 native test 使用 `tmp/job-vaccum-app/M1 lists Xd3Ohv` 合成目录；没有使用私人数据。CUA 按 Electron 名称曾选中另一个 worktree 的默认欢迎窗口，随后改用本 worktree 精确 App 路径进行验证，未操作另一工作区数据。
+
+### 前端交接与未做事项
+
+- M7 renderer 未实现：Runs 计划卡片/编辑、Waiting/Not run 详情、累计次数展示、附近时间提示、侧边栏 Next run，以及 Appearance 菜单栏开关/说明均留给前端。对应具名 API、字段和事件在 CONTRACTS 已列出；菜单栏开关当前可通过该 API 验证，尚无设置页控件。
+- 自动触发的无窗口 Electron 用例以没有有效搜索的合成配置形成 failed run，证明 main→service→SQLite 真实触发链路且不访问网站；成功 pipeline 与自动评分/等待则由后端 fake I/O 验证。DST 和长期休眠用虚拟时钟，没有实际休眠数日。
+- 未打包、签名、安装或执行发布验收；未验证正式安装副本的 Spotlight/Launchpad 项目。本轮实际验证开发实例的 activate、单实例重开、Dock 和后台时钟。
+- 未补做 M4 renderer/M5/M6；未 push、创建 PR、发布或修改远端设置。仅本地提交本阶段代码、测试和工程文档。
+
+
+## M4 后端：停止、崩溃恢复与运行完整性（2026-10-23，Codex）
+
+### 范围与实际交付
+
+用户授权 M4 后端、停止与恢复、interrupted、resume 新尝试预算、故障注入、退出有界停止及 ACCEPTANCE R 系列。阅读 README、SPEC、ARCHITECTURE、DATA-MODEL、CONTRACTS、PIPELINE、IMPLEMENTATION-PLAN、ACCEPTANCE 和既有实现。沿用独立 codex/dev 工作区；开工 fetch 后 HEAD 与 origin/main 均为 24d1100，`git merge origin/main` 无新增提交。未调用其他 Agent，未改 renderer、业务数据模型、依赖或 lockfile，未使用私人配置或凭据。
+
+- **有界退出**：原 main 已有进程组停止；补齐 Python 在 Electron 本身消失时的退出边界。EOF/SIGTERM 进入正常停止，停止新派发/重试，继续处理在途成功评分。CLI 自接收关闭信号起等待 10 秒，超时只结束自己创建的 multiprocessing 子进程及自身，绕过 ThreadPoolExecutor 的退出 join。正常 Stop 仍等待已发模型请求结束；Quit 强制结束时保留已提交数据，重启为 interrupted。
+- **停止发送边界**：抓取线程的开始通知可能阻塞在满队列；返回后复查 stop，未实际发出的抓取不计入最终累计 attempt_count。LLM 原有对应边界继续保留。
+- **临时资源**：正常 service 退出在抓取子进程结束后清空 App tmp。删除失败记录日志、不回滚业务提交、不新增恢复状态；强制退出剩余 tmp 在下次启动清理。
+- **恢复及预算验证**：沿用已有稳定任务 ID、原始快照及 succeeded 跳过逻辑。通过真实进程硬退出验证批次登记/提交、评分派发/提交七个故障点。失败任务连续三轮各得三次预算，累计 3/6/9；再一次显式 resume 可成功，已成功任务始终不重做。修正运行时 Key 可续跑，修改当前模型/rubric/城市/自动评分开关不改变旧快照。
+- **R 系列后端验证**：新增 `test_recovery.py` 19 项；使用仅存在于 tests 的 SQLite 子类/合成 transport 注入故障，没有生产开关或协议入口。覆盖工作子进程异常、service 硬退出、owner 异常退出、同时在途的停止与续跑、清理 BUSY/查询及备注响应、临时文件删除失败、EOF/SIGTERM 保存成功评分、挂起模型/抓取退出时限。既有 tests 继续覆盖零结果/失败区分、跨批去重/评分、缺失岗位 NOT_FOUND、满队列取消等。
+- **桌面边界验证**：新增 Node 测试验证 runs.start 超时后只查询状态、不重发；忽略 EOF/SIGTERM 的服务和子进程最终被 main 在约 11 秒结束。新增 `tests/electron-recovery-smoke.cjs`，直接 SIGKILL 真实 Electron owner，挂起 LLM 的后端约 10 秒自行结束；重启 interrupted，resume 完成两条评分，已成功抓取仍为一次尝试。
+- CONTRACTS、PIPELINE、backend README 同步退出语义；ACCEPTANCE 增加 R 系列测试入口和阶段边界。未增加公开协议字段或数据库迁移。
+
+### 实际验证环境与命令
+
+macOS 27.0.1（26A434）、arm64；项目 Python 声明与 uv 环境均 3.13.12，SQLite 3.54.0；Node 本机 26.12.1（项目 .node-version 26.12.0，满足既有 engines）、npm 11.20.0、uv 0.13.5、Electron 44.9.0。沿用已有独立依赖环境，没有升级或重装。
+
+| 命令 / 检查 | 实际结果 |
+| --- | --- |
+| backend `uv run --locked pytest -q`（第一轮，仅生产修改） | 原有 181 passed，19.63 秒 |
+| backend `uv run --locked pytest -q tests/test_recovery.py`（分批扩充故障用例） | 初批 13 passed；扩充后 18 passed，45.56 秒 |
+| backend `uv run --locked pytest -q tests/test_recovery.py -k 'owner_process or tmp_removal'` | 2 passed，10.94 秒 |
+| backend `uv run --locked pytest -q`（最终完整后端回归） | **200 passed，75.19 秒** |
+| desktop `npm test` | 类型检查、生产构建、**17 Node tests passed**，Node 测试 23.52 秒 |
+| desktop `npx --no-install playwright test --grep @smoke` | **6 passed，7.9 秒**：真实通信、关闭/重开/Quit、后端崩溃、M1/M2 桥接、列表及 Runs |
+| 下方真实 Electron owner 强杀命令 | **passed**；service_exit_ms=10030，恢复 succeeded，2 条评分完成，成功抓取未重做 |
+| `git diff --check` | 通过 |
+
+实际 Electron 验证从仓库根执行（此目录保留本次合成证据；再次执行须改用新的空目录）：
+
+```sh
+job-vaccum-app/desktop/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron job-vaccum-app/tests/electron-recovery-smoke.cjs --python "$PWD/job-vaccum-app/backend/.venv/bin/python" --data-dir "$PWD/tmp/m4-electron-recovery-20261023"
+```
+
+所有抓取/模型输出均为合成值；故障子进程显式阻断网络。测试中真实执行了 spawn、硬退出、SIGTERM/SIGKILL、SQLite 崩溃恢复、有限等待与进程回收。测试入口首次误从仓库根执行 `uv run --locked pytest`，未进入 Python 工程而报找不到 pytest；改在 backend 目录执行，无依赖变动。
+
+### 交付边界与未完成项
+
+- R01/R16 的当前后端部分已验证；计划 waiting、触发队列、删除搜索后计划关闭属于 M7，没有提前实现或标为通过。
+- 本轮不实现 M4 renderer 的 Resume/interrupted/剩余请求数展示，也不实现 M7 退出确认界面；existing main/preload 具名接口保持。
+- M6 Mihomo 未接入，本轮只验证现有抓取子进程、LLM、App tmp，不宣称 Mihomo 生命周期验收通过。
+- 没有重打安装包、测试真实网站/付费模型，未做完整 UI E2E 或视觉复验（未改 UI）；既有安装版分页重试遗留项继续暂缓。
+- HTTP 远端已成功但本地尚未提交时仍可能重发；仅保证本地已提交成功结果不重算。
+- 仅本地提交；未 push、PR、发布，也未更改远端设置。
 
 
 ## 仓库首页简要更新（2026-10-20，Codex）

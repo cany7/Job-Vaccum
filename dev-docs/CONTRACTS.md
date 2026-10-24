@@ -68,7 +68,7 @@ JobSummary：id、company、title、location、job_type、score 可空、score_r
 | queries.save/delete | ID、方向、expression、enabled | ID 稳定；运行快照不变 |
 | drafts.get/save | draft_kind、内容 | 持久草稿；不得覆盖正式设置 |
 | drafts.generate | kind=search/rubric、用户文本／条件 | operation_id；异步生成草稿 |
-| drafts.apply | draft_id | 应用编辑后的已验证草稿 |
+| drafts.apply | draft_kind | 应用编辑后的已验证草稿 |
 | model.test | 当前或待保存连接的非敏感字段 | operation_id，最小文本请求 |
 | jobs.list/detail | FilterSpec / job_id | 分页摘要 / 详情 |
 | applications.add | job_id | added 或 already_present |
@@ -153,6 +153,20 @@ rubric draft 返回 Markdown 字符串。用户只粘贴简历文本及少量明
 
 所有模型调用使用同一全局并发/RPM 调度器。网络错误、408、429、5xx 和无效生成按有限次数重试；认证及其他明确 4xx 直接报错，不无限重试。Retry-After 可影响等待时间，但不突破用户停止信号。
 
+### M5 后端草稿生成（2026-10-23）
+
+本节扩展 M2 草稿接口与 M3 model operation；schema_version=5、protocol_version=1 不变。当前仅 Python 实现，尚未增加 Electron shared/main/preload 的 generate 方法和事件类型，renderer 引导另行接入。现有 get/save/apply 的调用继续兼容；新增返回字段 input。
+
+- `drafts.generate {kind:"search"|"rubric",input:{text:string,conditions?:Qualifications,clarification_answer?:string}}`。text 为求职描述或粘贴的简历；conditions 沿用 rules.qualifications 的字段与校验（requires_sponsorship、work_authorization、languages、graduation_date、degrees）。省略 conditions 时复用当前已保存 qualifications；显式提供时整体使用该对象，`{}` 表示无条件。clarification_answer 仅 search 可用，为一轮追问的回答；再次提交时保留原 text。
+- 结构合法的 input 在检查非空文本、模型配置和 Key 前写入 `settings` 的 `draft_input:search` / `draft_input:rubric`，保留原文本（含换行与首尾空白）。空文本返回 VALIDATION_ERROR，缺模型返回 VALIDATION_ERROR，缺 Key 返回 AUTH_ERROR；均不启动 operation、不清空旧草稿。参数类型或条件值不合法则整体拒绝。已有 `draft:search/rubric` 继续保存可编辑内容，不新增业务表、历史副本或持久 operation。
+- 配置有效时立即返回 `{operation_id}`。使用开始时的模型、Key、输入和相关设置；共享评分/连接测试的同一个 LLM 池，遵守并发 1、RPM 10、三次尝试、5/10 秒退避和 Retry-After。查询、清单编辑及其他种类模型请求仍可接受，清理等待全部 operation 结束。
+- 成功经接收循环提交草稿后发送 `drafts.generated {operation_id,draft_kind}`；调用方通过 drafts.get 读取持久内容。成功响应一定先于事件。新事件独立于 CSV 的 operation.completed 和 model.test.completed，避免误触发旧 UI。失败发送既有 `operation.failed {operation_id,error}`，不包含模型原文或简历；写库失败返回 STORAGE_ERROR，事务回滚，接收循环继续可用。
+- `app.status.operations` 增加 `{operation_id,kind:"draft_generate",draft_kind,status:"running"|"cancelling"}`。`operations.cancel` 支持生成；取消排队、RPM 等待和退避，已发请求仍占并发直到结束，迟到结果丢弃并最终发送 operation.failed/CANCELLED。退出沿用 M4 取消和有界停止，重启不自动续发生成，输入/最后成功草稿仍可读取。
+- `drafts.get {draft_kind}` 返回 `{draft_kind,content:null|SearchDraft|string,input:null|上述input}`；`drafts.save {draft_kind,content?,input?}` 至少提供 content/input 之一，未提供字段保持。input-only 保存允许 text 为空，供未完成表单持久化；同时保存内容和输入时先全部校验，再原子提交。输入加内容需可通过既有 1 MiB 响应上限读取，超限拒绝写入；超限模型输出按无效生成有限重试。旧草稿无 input 时返回 null，无迁移要求。
+- 同一种草稿后续成功的 save/apply 或新 generate 输入保存会取消尚未结束的旧生成，防止迟到内容覆盖用户更新；其他 kind 和 model.test 不受影响。取消、失败、请求期间均保留已有可编辑草稿；只有成功生成才替换该 kind 的草稿。正式配置始终只由 Apply 更新，rubric Apply 不自动开启评分。
+- 搜索生成严格校验 JSON 字段、非空名称/表达式、boolean enabled、0..1000 的整数半径；拒绝模型指定的数据库 ID、未知字段、空方向或错误数量。正常输出一个方向、2～3 query；编辑后的手动草稿仍可增删方向/query。信息不足时接受 `{directions:[],cities:[],clarification:"简短问题"}`；带 clarification 的内容不可 Apply。传入 clarification_answer 后再次追问视为无效输出，走有限重试，不启动自主对话循环。
+- rubric 生成接受非空 Markdown 文本，拒绝 JSON 包装或外层代码围栏，不强制固定标题/关键词。身份、资格不推断及不把未知条件当冲突由 prompt 约束，格式校验不能证明内容事实正确；生成后仍需用户审阅编辑。两段内置 prompt 集中在 `backend/src/job_vaccum/llm/drafts.py`。使用简单岗位关键词约束 LinkedIn/Indeed 搜索，未指定城市时提示保留已有城市；rubric 复用明确条件及现有方向名，评分 JSON 格式继续由实际评分调用层附加。
+
 ## M1 第 2 步实施补充（2026-10-19）
 
 本节将前述目录具体化；M0 接口说明为历史记录。schema_version 升为 2。本步不含 renderer 接入。
@@ -232,9 +246,11 @@ M3 审阅修正：`setModelKey` 拒绝空白或含 CR/LF 的输入，合法单�
 - 手动评分只要求当前 model、已保存 Key、非空 rubric，不要求 query/城市，也不使用抓取代理；不受 auto_score_enabled 影响。缺配置返回 VALIDATION_ERROR，任何 pipeline/rescore 活跃（含 stopping）返回 BUSY。清理等待运行和连接测试结束；浏览、清单编辑、CSV 不等待网络。
 - 新任务与岗位 pending 原子登记，旧成功分数保留；实际请求开始转 running，每次请求（含重试）增加 attempt_count。成功事务只更新 jobs 的 score/reason/scored_at/score_model/state/error 和对应任务/统计；失败只写 failed、last_score_error（可读脱敏文本）和任务 error，不改旧成功分与时间、正文或清单。0 分是 succeeded。
 - 新批次入库后立即排队评分，与后续抓取重叠；本轮每 job 一个任务，输入仅 title/company/description 加运行 rubric。不同 job 即使输入完全相同也独立请求，不缓存、不共享结果；后续来源/方向命中不重评。抓取结束后仍等待评分，提交后发送 jobs.changed 和 run 事件。
-- stop 立即停止后续派发与重试，可打断 RPM/退避；已发请求继续占用全局并发直至结束，成功评分照常保存，再转 stopped。未开始任务 cancelled，未完成岗位保留 pending 供续跑。resume 跳过 succeeded，其他任务获得新的三次尝试预算；启动将旧 running 任务转 pending，保留旧成功分。更完整的崩溃/退出故障注入仍属 M4。
+- stop 立即停止后续派发与重试，可打断 RPM/退避；已发请求继续占用全局并发直至结束，成功评分照常保存，再转 stopped。未开始任务 cancelled，未完成岗位保留 pending 供续跑。resume 跳过 succeeded，其他任务获得新的三次尝试预算；启动将旧 running 任务转 pending，保留旧成功分。崩溃/退出故障验证入口见 ACCEPTANCE 的 M4 后端验证边界。
 - 自动清理可能删除 stopped/interrupted 运行中的旧岗位，但保留较新的运行和任务。续跑派发时，岗位已不存在的任务记 failed，error.code=NOT_FOUND、retryable=false，不发模型请求、不增加 attempt_count、不恢复岗位；继续其他任务并按实际结果结束运行。缺失任务仍保留在运行详情，全部岗位已删时运行可正常结束为 failed，混合存活岗位时为 partial。
 - worker 在通知接收循环等阻塞返回后、发送 transport 前再次检查取消信号；未发请求以 CANCELLED 结算，任务最终 attempt_count 只计实际 transport 调用，保留此前累计尝试数。已经发出的请求仍按原停止语义保存成功结果。
+
+M4 退出补充：不新增 shutdown 协议命令。EOF 与 SIGTERM 均进入正常停止流程，继续接收在途评分结果并提交；CLI 同时启动 10 秒退出期限，超时结束本进程创建的 multiprocessing 子进程并强制退出，不等待 ThreadPoolExecutor 的解释器退出 join。该期限也覆盖 Electron 意外退出造成的 EOF/输出管道断开；Electron 原有 10 秒等待、SIGTERM、1 秒后 SIGKILL 的进程组停止保持。强制退出不伪造 stopped/succeeded，下一次持锁启动标 interrupted；正常 Stop 不受 Quit 时限影响。正常退出在抓取子进程结束后清空 App tmp，强制退出遗留 tmp 由下次启动清理。抓取线程在开始通知阻塞返回后同样复查停止信号，最终 attempt_count 不计未发起的抓取。
 
 ### HTTP 与限速
 
@@ -259,6 +275,19 @@ fake LLM 仅 Python 测试依赖注入，支持成功（含 0 分）、无效输
 
 - 迁移 004 给 runs 增加可空 trigger_json；schema_version=4，protocol_version=1 不变。旧运行 trigger 为 null，界面按 Manual 显示。
 - runs.preview/start 接受 direction_ids（省略或 null=全部启用搜索；非数组返回 VALIDATION_ERROR；未知 ID 忽略，空数组或剩余为空返回 VALIDATION_ERROR；所选搜索没有启用 query 时返回 VALIDATION_ERROR）。快照写入 direction_ids（null 或所选 ID）；只为所选且启用的方向生成任务。
-- 本阶段 runs.start 与 jobs.score 都写 trigger_json `{source:"manual"}`；schedule_id/firing_id 参数及 source=schedule 随 M7 计划功能加入，当前传入会按未知字段拒绝。
+- M3 初始阶段 runs.start 与 jobs.score 都写 trigger_json `{source:"manual"}`；M7 已补齐 schedule_id/firing_id 和自动触发 source=schedule，具体语义见下节。
 - RunSummary 增加 searches（null 或快照中的 `[{id,name}]`，名称取运行开始时的快照，方向删除后仍显示）与 trigger。preload 的 previewRun/startRun 接受可选 `{direction_ids}`。
 - Runs 页 runs.detail 以 task_page_size=200 逐页取回全部任务（评分运行只取 1 条，不显示任务表）。
+
+
+## M7：计划、时钟与桌面接口（schema 5）
+
+- `schedules.save {id?,enabled,direction_ids,time,weekdays,timezone}` 返回 `{id}`，更新必须提供完整字段。weekdays 为 Monday=0 至 Sunday=6，重复值去重；time 严格 HH:mm，timezone 必须为 zoneinfo 可识别 IANA 名称。direction_ids 必须为现有方向的非空数组或 null；无效字段和超过十个计划返回 VALIDATION_ERROR，更新/删除不存在 ID 返回 NOT_FOUND。附近计划不拒绝。
+- `schedules.list {}` 的 items 除原字段增加 created_at、updated_at、checked_at；next_at 是水位之后下一时刻，关闭计划为 null。运行中/等待计划置顶，其余按 time/id；firings 按 scheduled_at 倒序，包含全部 waiting、每计划一条 not_run 和最近五条 started，cancelled 不返回。Firing 增加 `missed_since:number|null`；run_id 在运行过期删除后为 null。
+- `schedules.trigger {schedule_id,scheduled_at}` 与 `schedules.record_missed {schedule_id,scheduled_at,reason,missed_count,missed_since?}` **只给 main**，不进入 businessMethods/preload。成功返回 Firing，已存在的同一触发返回原记录；已删除/合并且早于检查水位的旧通知返回 `{ignored:true}`。拒绝未来时刻、非该计划的到点时刻及尚未记账的关闭计划。record_missed 合并旧未运行数量及最早时间；不创建 run。
+- `internal.schedules_check {reason?:"asleep"|"app_closed"}` **只给 main**，返回 `{checked_at}`。省略 reason 为正常到点检查，传 reason 只记未运行。service 用同一 zoneinfo 算法计算范围、调用触发记账并推进水位；renderer 无法直接调用或注入时钟。
+- `firings.cancel {firing_id}` 仅接受 waiting，返回 `{cancelled:true}`；`firings.delete {firing_id}` 仅接受 not_run，返回 `{deleted:true}`。错误状态返回 VALIDATION_ERROR，不存在返回 NOT_FOUND。删除计划返回 `{deleted:true}`，级联删除触发但保留运行与历史 trigger。
+- `runs.start` 的 schedule_id 可用于计划内手动运行；direction_ids 可覆盖尚未保存的选择。带 firing_id 时只接受 not_run，若另传 schedule_id 必须匹配，不能再覆盖 direction_ids；成功后 firing 改 started。手动来源均为 manual；定时/等待启动为 schedule。忙时返回 BUSY，失败不消耗 not_run。任务尚未创建的 failed run 不能 resume，返回可操作的 VALIDATION_ERROR。
+- `cleanup.preview` 增加 `firings`；`cleanup.execute`/cleanup.completed 增加 `deleted_firings`。waiting 不作为清理候选；0 保留期仍关闭自动清理；计划配置不删除。
+- 计划保存/删除、等待开始、取消、未运行变化、删除搜索及触发记录清理发送 `schedules.updated {}`。run.updated/run.stats 继续用于自动启动的运行。
+- preload 具名 API：listSchedules、saveSchedule、deleteSchedule、cancelFiring、deleteFiring；startRun 接受上述扩展。主进程本机偏好具名 API `getDesktopPreferences()` / `setDesktopPreferences({show_menu_bar_icon:boolean})` 返回该偏好，默认 true，保存在 userData/desktop-preferences.json；不写业务 settings。两者沿用受信任 sender 验证。Appearance 的开关及 Runs 计划编辑器由后续 renderer 阶段接入。

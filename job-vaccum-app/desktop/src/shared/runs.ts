@@ -75,7 +75,7 @@ export interface RunsApi {
   saveDraft(params: SaveDraft): Promise<ApiResult<Draft>>;
   applyDraft(params: { draft_kind: DraftKind }): Promise<ApiResult<Draft>>;
   previewRun(params?: RunSelection): Promise<ApiResult<{ task_count: number; parameters: RunParameters; auto_score_enabled: boolean }>>;
-  startRun(params?: RunSelection): Promise<ApiResult<{ run_id: string }>>;
+  startRun(params?: RunSelection & { schedule_id?: string; firing_id?: string }): Promise<ApiResult<{ run_id: string }>>;
   listRuns(params?: { page?: number; page_size?: number; kind?: 'pipeline' | 'rescore' }): Promise<ApiResult<{ items: RunSummary[]; total: number }>>;
   getRunDetail(params: { run_id: string; task_page?: number; task_page_size?: number }): Promise<ApiResult<RunDetail>>;
   stopRun(params: { run_id: string }): Promise<ApiResult<{ run_id: string }>>;

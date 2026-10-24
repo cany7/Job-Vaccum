@@ -21,8 +21,11 @@
 | [PIPELINE.md](PIPELINE.md) | 抓取、筛选、评分、停止恢复、代理和调度 |
 | [IMPLEMENTATION-PLAN.md](IMPLEMENTATION-PLAN.md) | 有依赖顺序的开发阶段与交付要求 |
 | [ACCEPTANCE.md](ACCEPTANCE.md) | 自动化测试与手工发行验收清单 |
+| [M8-M9-MCP.md](M8-M9-MCP.md) | M8 本机 MCP 与 Shortlist/计划/运行接入；M9 搜索及全局配置编辑 |
 
 先读 SPEC 和工程架构，再按阶段读取相关文档；不要只读任务列表就猜数据模型。
+
+M8/M9 是用户确认的后续扩展，实施时加读 M8-M9-MCP。该文档记录工具、分页、数据与验证范围，不表示已实现；进度仍以 DEVELOPMENT-STATUS 为准。
 
 ## 给开发 Agent 的启动指令
 

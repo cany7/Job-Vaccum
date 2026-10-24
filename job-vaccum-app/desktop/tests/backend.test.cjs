@@ -98,3 +98,38 @@ test('service crash terminates its owned child even when that child holds stdio'
     assert.equal(alive, false);
   } finally { await backend.stop(); }
 });
+
+
+test('timed-out start is queried without creating another run', { timeout: 5000 }, async () => {
+  const backend = peer('start-timeout', { requestMs: 30 });
+  try {
+    await ready(backend);
+    assert.equal((await backend.request('runs.start')).error.code, 'TIMEOUT');
+    const status = await backend.request('app.status');
+    assert.equal(status.result.active_run.run_id, 'accepted-once');
+    assert.equal(status.result.starts, 1);
+    await new Promise(resolve => setTimeout(resolve, 200));
+    assert.equal((await backend.request('app.status')).result.starts, 1);
+  } finally { await backend.stop(); }
+});
+
+
+test('quit kills a service and child ignoring EOF and SIGTERM within the bound', { timeout: 15_000 }, async () => {
+  const backend = peer('stubborn-child');
+  try {
+    await ready(backend);
+    const response = await backend.request('app.status');
+    const pid = response.result.child_pid;
+    const before = performance.now();
+    const first = backend.stop();
+    assert.equal(backend.stop(), first);
+    await first;
+    assert.ok(performance.now() - before < 13_000);
+    let alive = true;
+    for (let index = 0; index < 50 && alive; index++) {
+      try { process.kill(pid, 0); await new Promise(resolve => setTimeout(resolve, 20)); }
+      catch (error) { assert.equal(error.code, 'ESRCH'); alive = false; }
+    }
+    assert.equal(alive, false);
+  } finally { await backend.stop(); }
+});

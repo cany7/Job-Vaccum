@@ -6,7 +6,7 @@ import math
 from urllib.parse import urlsplit
 from uuid import uuid4
 
-from job_vaccum.service.protocol import CommandError
+from job_vaccum.service.protocol import CommandError, check_result_size
 from job_vaccum.storage.filters import fields, string, strings, integer, boolean, choice
 
 PARAMETERS = {'results_wanted': {'linkedin': 10, 'indeed': 100}, 'hours_old': 72,
@@ -61,7 +61,10 @@ def validate_rules(value):
         choice(rule, 'rule', RULE_IDS)
     integer(value['experience_max_years'], 'experience_max_years', 0, 100)
     strings(value['excluded_companies'], 'excluded_companies')
-    q = value['qualifications']
+    validate_qualifications(value['qualifications'])
+
+
+def validate_qualifications(q):
     fields(q, {'requires_sponsorship', 'work_authorization', 'languages', 'graduation_date', 'degrees'})
     if 'requires_sponsorship' in q:
         boolean(q['requires_sponsorship'], 'requires_sponsorship')
@@ -186,7 +189,9 @@ def validate_draft(kind, content):
     if kind == 'rubric':
         string(content, 'content', empty=True)
         return content
-    fields(content, {'directions', 'cities'}, {'directions', 'cities'})
+    fields(content, {'directions', 'cities', 'clarification'}, {'directions', 'cities'})
+    if 'clarification' in content:
+        string(content['clarification'], 'clarification')
     cities(content['cities'], draft=True)
     if not isinstance(content['directions'], list):
         raise CommandError('directions must be an array.')
@@ -202,15 +207,34 @@ def validate_draft(kind, content):
     return content
 
 
+def validate_draft_input(kind, value):
+    fields(value, {'text', 'conditions'} | ({'clarification_answer'} if kind == 'search' else set()), {'text'})
+    string(value['text'], 'text', empty=True)
+    if 'conditions' in value:
+        validate_qualifications(value['conditions'])
+    if 'clarification_answer' in value:
+        string(value['clarification_answer'], 'clarification_answer')
+    return value
+
+
 def draft(repo, method, params):
-    fields(params, {'draft_kind', 'content'} if method == 'save' else {'draft_kind'},
-           {'draft_kind', 'content'} if method == 'save' else {'draft_kind'})
+    fields(params, {'draft_kind', 'content', 'input'} if method == 'save' else {'draft_kind'}, {'draft_kind'})
     kind = choice(params['draft_kind'], 'draft_kind', ('search', 'rubric'))
     key = 'draft:' + kind
     if method == 'save':
-        content = validate_draft(kind, params['content'])
+        if not {'content', 'input'} & params.keys():
+            raise CommandError('Provide draft content or input to save.')
+        if 'content' in params:
+            validate_draft(kind, params['content'])
+        if 'input' in params:
+            validate_draft_input(kind, params['input'])
+        current = draft(repo, 'get', {'draft_kind': kind})
+        check_result_size({**current, **params})
         with repo.db:
-            put(repo.db, key, content)
+            if 'content' in params:
+                put(repo.db, key, params['content'])
+            if 'input' in params:
+                put(repo.db, 'draft_input:' + kind, params['input'])
     row = repo.db.execute('SELECT value_json FROM settings WHERE key=?', (key,)).fetchone()
     content = json.loads(row[0]) if row else None
     if method == 'apply':
@@ -220,14 +244,19 @@ def draft(repo, method, params):
         if kind == 'rubric':
             save(repo, {'rubric': content})
         else:
+            if 'clarification' in content:
+                raise CommandError('Answer the clarification and generate a search draft before applying.')
             with repo.db:
                 repo.db.execute('BEGIN IMMEDIATE')
                 repo.db.execute('DELETE FROM directions')
                 repo.db.execute("UPDATE jobs SET queries_json='[]'")
+                # Every selected search ID is replaced; All searches stays dynamic.
+                repo.db.execute("UPDATE schedules SET direction_ids_json='[]',enabled=0 WHERE json_type(direction_ids_json)='array'")
                 for index, d in enumerate(content['directions']):
                     did = str(uuid4())
                     repo.db.execute('INSERT INTO directions VALUES (?,?,1,?)', (did, d['name'].strip(), index))
                     for q in d['queries']:
                         repo.db.execute('INSERT INTO queries VALUES (?,?,?,?)', (str(uuid4()), did, q['expression'].strip(), q['enabled']))
                 put(repo.db, 'cities', cities(content['cities']))
-    return {'draft_kind': kind, 'content': content}
+    row = repo.db.execute('SELECT value_json FROM settings WHERE key=?', ('draft_input:' + kind,)).fetchone()
+    return {'draft_kind': kind, 'content': content, 'input': json.loads(row[0]) if row else None}

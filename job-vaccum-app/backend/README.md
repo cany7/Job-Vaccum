@@ -69,13 +69,20 @@ malformed/oversized protocol lines.
 Logs use stderr. Startup failures produce no ready event, an explanatory stderr
 message, and exit code 2. The data directory being owned returns stderr `BUSY`.
 
-EOF and SIGTERM close SQLite and release the lock. No shutdown command is added.
+EOF and SIGTERM request a graceful stop, then close SQLite and release the lock. No shutdown command is added.
 Electron should keep stdin open while its backend is needed; closing the window
 must retain main/service. Explicit Quit closes stdin, waits up to 10 seconds,
 then terminates only its owned process if necessary. CSV exports use a reader thread
 and finish on EOF. EOF stops retrieval/model dispatch and cancels unsent model work;
-in-flight model scores can finish and commit. Electron bounds process shutdown.
-The full shutdown and fault-injection acceptance matrix remains M4 work.
+in-flight model scores can finish and commit. The CLI also starts a 10-second
+shutdown deadline for EOF, SIGTERM or receiver exit, so an unexpectedly lost
+Electron owner cannot leave it waiting forever on a model thread. At the deadline
+it kills/reaps its own multiprocessing children and exits without waiting for the
+thread pool's interpreter-exit join. Unfinished runs become interrupted on the
+next launch. Electron retains its process-group termination deadline as well.
+Normal Stop does not use the quit deadline: already-sent scores may complete and
+commit until the request succeeds or fails. App-owned tmp cleanup follows child
+shutdown; a forced exit leaves remaining tmp cleanup to the next startup.
 
 ## M1 data commands
 
@@ -266,3 +273,51 @@ injects them privately, never through ordinary settings. See
 [CONTRACTS](../../dev-docs/CONTRACTS.md#m3-后端协议与桌面桥接2026-10-19)
 for named preload methods, events and frontend integration. This step does not
 implement renderer controls or AI draft generation.
+
+## M4 recovery verification
+
+`tests/test_recovery.py` and its subprocess-only `recovery_peer.py` exercise hard
+process exits before/after score registration, batch commits, score dispatch and
+score commits. Fault injection uses test-side SQLite subclasses and synthetic
+transports; it adds no production command, environment switch or recovery file.
+Committed successful tasks retain their IDs and attempts. Every explicit resume
+gives unfinished tasks another finite budget while preserving cumulative attempts
+and the original business snapshot; only runtime credentials can be corrected.
+
+The tests also cover simultaneous retrieval/scoring stop, new-run exclusion,
+responsive reads/notes, exhausted budgets, hung workers/models, owner loss and tmp
+deletion failure. Existing pipeline/scoring/LLM tests cover the remaining R-series
+backend assertions. The actual Electron owner-crash check is
+`../tests/electron-recovery-smoke.cjs`; exact invocation and verified results live
+in DEVELOPMENT-STATUS. Scheduled-trigger assertions in R01/R16 remain M7, and M4
+renderer controls are outside this backend delivery.
+
+## M5 draft generation
+
+`drafts.generate {kind:"search"|"rubric",input:{text,conditions?,clarification_answer?}}`
+saves input before checking model prerequisites, then returns an operation ID.
+Generation uses the same pool, rate gate and finite retry policy as scoring and
+connection tests. On success, `drafts.generated {operation_id,draft_kind}` means
+the validated draft is committed; read it with `drafts.get`. Errors use
+`operation.failed`. Cancelling retains in-flight capacity until the HTTP request
+ends and discards its output. User edits, Apply or a new generation cancel older
+generation of the same kind so late results cannot overwrite the newer work.
+
+`drafts.get/save/apply` also return `input`. Save accepts content and/or input,
+allowing incomplete text to be saved independently. Inputs and editable content
+use separate keys in the existing settings table, without a migration. Failure
+and cancellation preserve both the input and previous content. Formal settings
+only change on Apply; applying a rubric never enables automatic scoring.
+
+The two built-in prompts live together in `src/job_vaccum/llm/drafts.py`. Search
+output is validated structured JSON (one direction, two or three queries, cities,
+or one short clarification); clarification drafts cannot be applied. Rubric
+output is nonempty Markdown, without JSON wrapping or an enclosing code fence.
+Explicit conditions reuse the existing qualification schema and default to saved
+qualifications when omitted. No resume file parser or autonomous agent is added.
+
+`tests/test_drafts.py` uses FakeLlm responses, temporary databases and the real
+service loop. See the M5 section of [CONTRACTS](../../dev-docs/CONTRACTS.md) for
+the complete API and [DEVELOPMENT-STATUS](../../dev-docs/DEVELOPMENT-STATUS.md) for
+executed checks. Electron generate bindings/event types and the onboarding UI
+are outside this Python-only delivery.

@@ -22,7 +22,9 @@ from job_vaccum.storage.export import export_csv, validate_export
 from job_vaccum.storage.synthetic import import_synthetic
 from job_vaccum.pipeline.configuration import draft, proxy_origin, validate_model
 from job_vaccum.pipeline.runs import Runs
+from job_vaccum.pipeline.schedules import Schedules
 from job_vaccum.llm.pool import LlmPool
+from job_vaccum.llm.drafts import generation_request, parse_generated
 
 
 def diagnostics(connection: sqlite3.Connection) -> dict:
@@ -55,6 +57,8 @@ class Service:
         self.model_operations = {}
         self.runs = Runs(self.repo, self.inbox, llm=self.llm, **({"attempt": attempt} if attempt else {}))
 
+        self.schedules = Schedules(self.repo, self.runs)
+
     def dispatch(self, method, params, request_id=None):
         if method == "app.ping":
             if set(params) != {"message"} or not isinstance(params["message"], str) or len(params["message"]) > 256:
@@ -67,17 +71,26 @@ class Service:
             if method == "settings.get":
                 return self.settings()
             return {"active_run": self.runs.active(), "operations": [{"operation_id": key, "kind": "export"} for key in self.operations] +
-                    [{"operation_id": key, "kind": "model_test", "status": 'cancelling' if cancel.is_set() else 'running'} for key, cancel in self.model_operations.items()],
+                    [{"operation_id": key, "kind": op['kind'],
+                      **({'draft_kind': op['draft_kind']} if 'draft_kind' in op else {}),
+                      "status": 'cancelling' if op['cancel'].is_set() else 'running'} for key, op in self.model_operations.items()],
                     "cleanup": {"status": "idle"}, "configuration_complete": self.configuration_complete(),
                     "storage": {"schema_version": SCHEMA_VERSION, "journal_mode": "wal"}}
         commands = {
+            "schedules.list": self.schedules.list, "schedules.save": self.schedules.save,
+            "schedules.delete": self.schedules.delete, "schedules.trigger": self.schedules.register,
+            "schedules.record_missed": lambda p: self.schedules.register(p, missed=True),
+            "internal.schedules_check": self.schedules.check,
+            "firings.cancel": self.schedules.change_firing,
+            "firings.delete": lambda p: self.schedules.change_firing(p, delete=True),
             "jobs.list": self.repo.list_jobs, "jobs.detail": self.repo.detail,
             "jobs.score": self.runs.score,
             "settings.save": lambda p: self.save_settings(p),
             "drafts.get": lambda p: draft(self.repo, "get", p),
-            "drafts.save": lambda p: draft(self.repo, "save", p),
-            "drafts.apply": lambda p: draft(self.repo, "apply", p),
-            "runs.preview": self.runs.preview, "runs.start": self.runs.start,
+            "drafts.save": lambda p: self.change_draft('save', p),
+            "drafts.apply": lambda p: self.change_draft('apply', p),
+            "drafts.generate": self.generate_draft,
+            "runs.preview": self.runs.preview, "runs.start": self.schedules.manual_start,
             "runs.list": self.runs.list, "runs.detail": self.runs.detail,
             "runs.stop": self.runs.stop, "runs.resume": self.runs.resume,
             "directions.save": self.repo.direction_save, "directions.delete": self.repo.direction_delete,
@@ -121,7 +134,7 @@ class Service:
             if model is None or not self.runs.model_key:
                 raise CommandError('Configure a model and save an API key before testing.')
             operation_id, cancel = str(uuid4()), threading.Event()
-            self.model_operations[operation_id] = cancel
+            self.model_operations[operation_id] = {'kind': 'model_test', 'cancel': cancel}
             self.llm.submit(operation_id, model, self.runs.model_key, '', 'Reply with OK.', lambda text: {'connected': True}, cancel)
             return {'operation_id': operation_id}
         if method == 'operations.cancel':
@@ -152,6 +165,38 @@ class Service:
     def settings(self):
         return {**self.repo.settings(), 'has_key': self.runs.model_key is not None, 'has_proxy_credentials': self.runs.proxy_credential is not None}
 
+    def change_draft(self, method, params):
+        result = draft(self.repo, method, params)
+        # A later user edit/apply/generation supersedes outstanding output.
+        for token, op in self.model_operations.items():
+            if op.get('draft_kind') == result['draft_kind']:
+                self.llm.cancel(token)
+        return result
+
+    def generate_draft(self, params):
+        fields(params, {'kind', 'input'}, {'kind', 'input'})
+        kind = choice(params['kind'], 'kind', ('search', 'rubric'))
+        saved = self.change_draft('save', {'draft_kind': kind, 'input': params['input']})
+        user_input = saved['input']
+        # Save even an empty/incomplete input before checking model prerequisites.
+        string(user_input['text'], 'text')
+        settings = self.repo.settings()
+        if 'conditions' not in user_input:
+            user_input['conditions'] = settings['rules']['qualifications']
+            draft(self.repo, 'save', {'draft_kind': kind, 'input': user_input})
+        model = settings['model']
+        validate_model(model)
+        if model is None:
+            raise CommandError('Configure a model before generating a draft.')
+        if not self.runs.model_key:
+            raise CommandError('Save an API key before generating a draft.', 'AUTH_ERROR')
+        system, prompt = generation_request(kind, user_input, settings, saved['content'])
+        operation_id, cancel = str(uuid4()), threading.Event()
+        self.model_operations[operation_id] = {'kind': 'draft_generate', 'draft_kind': kind, 'cancel': cancel}
+        self.llm.submit(operation_id, model, self.runs.model_key, system, prompt,
+                        lambda text: parse_generated(kind, text, user_input=user_input), cancel)
+        return {'operation_id': operation_id}
+
     def handle_llm(self, kind, payload, event):
         token = payload if kind == 'llm_attempt' else payload[0]
         if kind == 'llm_result':
@@ -160,9 +205,19 @@ class Service:
             self.runs.handle_score(kind, payload, event)
         elif kind == 'llm_result':
             _, result, error, _attempts = payload
-            if self.model_operations.pop(token).is_set():
+            op = self.model_operations.pop(token)
+            if op['cancel'].is_set():
                 error = {'code': 'CANCELLED', 'message': 'Model operation cancelled.', 'retryable': False}
-            event('operation.failed' if error else 'model.test.completed',
+            success_event = 'model.test.completed'
+            if 'draft_kind' in op:
+                success_event = 'drafts.generated'
+                if not error:
+                    try:
+                        draft(self.repo, 'save', {'draft_kind': op['draft_kind'], 'content': result})
+                    except Exception:
+                        error = {'code': 'STORAGE_ERROR', 'message': 'Could not save the generated draft. Your input and previous draft are retained.', 'retryable': False}
+                result = {'draft_kind': op['draft_kind']}
+            event('operation.failed' if error else success_event,
                   {'operation_id': token, **({'error': error} if error else result)})
 
     def save_settings(self, params):
@@ -178,10 +233,11 @@ class Service:
 
 
 def serve(root: Path, source: BinaryIO, destination: BinaryIO, *, clock=now_ms, enable_dev=False,
-          cleanup_interval=60, attempt=None, llm_options=None) -> None:
+          cleanup_interval=60, attempt=None, llm_options=None, shutdown=None) -> None:
     # Only this receive loop writes SQLite or protocol output. The input reader and
     # CSV worker submit messages; neither shares the writer connection.
     inbox = queue.Queue(maxsize=64)
+    shutdown = shutdown if shutdown is not None else threading.Event()
     def read_input():
         try:
             # A reader-owned buffer avoids locking interpreter-owned stdin during
@@ -208,7 +264,20 @@ def serve(root: Path, source: BinaryIO, destination: BinaryIO, *, clock=now_ms, 
         ended = False
         try:
             while not ended or service.operations or service.model_operations or service.runs.active():
-                timeout = max(0, deadline - time.monotonic())
+                if shutdown.is_set() and not ended:
+                    ended = True
+                    service.schedules.close_waiting()
+                    for token in list(service.model_operations):
+                        service.llm.cancel(token)
+                    active = service.runs.active()
+                    if active:
+                        service.runs.stop({'run_id': active['run_id']})
+                        service.runs.notifications(active['run_id'], event)
+                        service.runs.advance(event)
+                    if not service.operations and not service.model_operations and not service.runs.active():
+                        break
+                service.schedules.advance(event)
+                timeout = min(0.1, max(0, deadline - time.monotonic()))
                 try:
                     kind, payload = inbox.get(timeout=timeout)
                 except queue.Empty:
@@ -217,21 +286,18 @@ def serve(root: Path, source: BinaryIO, destination: BinaryIO, *, clock=now_ms, 
                     if not service.operations and not service.model_operations and not service.runs.active():
                         try:
                             cleaned = service.cleanup.execute("automatic")
-                            if cleaned["deleted_jobs"] or cleaned["deleted_runs"] or cleaned["deleted_files"] or cleaned["failed_files"]:
+                            if cleaned["deleted_jobs"] or cleaned["deleted_firings"] or cleaned["deleted_runs"] or cleaned["deleted_files"] or cleaned["failed_files"]:
                                 event("cleanup.completed", cleaned)
+                                service.schedules.changed = bool(cleaned["deleted_firings"])
                                 if cleaned["deleted_jobs"]:
                                     event("jobs.changed", {})
                         except Exception:
                             logging.error("CLEANUP_ERROR: Automatic cleanup failed.")
                     deadline = time.monotonic() + cleanup_interval
                 if kind == "eof":
-                    ended = True
-                    for token in list(service.model_operations):
-                        service.llm.cancel(token)
-                    active = service.runs.active()
-                    if active:
-                        service.runs.stop({'run_id': active['run_id']})
-                        service.runs.advance(event)
+                    shutdown.set()
+                    continue
+                if ended and kind == 'request':
                     continue
                 if kind in ('llm_attempt', 'llm_result'):
                     service.handle_llm(kind, payload, event)
@@ -262,6 +328,9 @@ def serve(root: Path, source: BinaryIO, destination: BinaryIO, *, clock=now_ms, 
                     response = {"type": "response", "id": request_id, "ok": False,
                                 "error": {"code": "INTERNAL_ERROR", "message": "Backend command failed.", "retryable": False}}
                 write(destination, response)
+                if succeeded and (method in {"directions.delete", "cleanup.execute"}
+                                  or (method == "drafts.apply" and result['draft_kind'] == 'search')):
+                    service.schedules.changed = True
                 if succeeded and method == "cleanup.execute":
                     event("cleanup.completed", result)
                 if succeeded and (method.startswith(("applications.", "directions.", "queries."))
@@ -273,4 +342,7 @@ def serve(root: Path, source: BinaryIO, destination: BinaryIO, *, clock=now_ms, 
                     service.runs.notifications(result['run_id'], event)
                     service.runs.advance(event)
         finally:
+            shutdown.set()
             service.runs.close()
+            if not service.runs.thread or not service.runs.thread.is_alive():
+                service.cleanup.clear_tmp()

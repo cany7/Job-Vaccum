@@ -90,3 +90,24 @@ for (const failure of ['unavailable', 'decrypt']) {
     }
   });
 }
+
+test('background preparation injects both credentials without a window and reports unreadable proxy', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'jv-background-ipc-'));
+  const calls = [];
+  const backend = new EventEmitter();
+  backend.request = async (method, params) => {
+    calls.push([method, params]);
+    return { ok: true, result: { has_key: params.model_key != null, has_proxy_credentials: params.proxy_url != null } };
+  };
+  try {
+    available = true; broken = false;
+    const prepare = registerBusinessIpc(backend, () => null, () => {}, directory);
+    await prepare();
+    assert.deepEqual(calls, [
+      ['internal.credentials', { proxy_url: null }], ['internal.credentials', { model_key: null }],
+    ]);
+    await handlers.get('credentials:set-proxy')({}, { url: 'http://synthetic:password@localhost:8080' });
+    available = false;
+    await assert.rejects(prepare(), /Proxy credentials could not be read/);
+  } finally { available = true; broken = false; await rm(directory, { recursive: true, force: true }); }
+});

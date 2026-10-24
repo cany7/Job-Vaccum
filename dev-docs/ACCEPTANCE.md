@@ -162,6 +162,26 @@
 
 真实网站失败可能来自平台限制，记录证据后修复可控问题；不得通过取消错误检查把失败当作零结果。未通过项列出影响与复现步骤，不能用“应该可以”结项。
 
+## M4 后端验证边界与入口
+
+本阶段使用 `backend/tests/test_recovery.py` 的真实子进程硬退出、重启与合成 I/O，加上既有 pipeline/scoring/LLM 测试；不通过产品命令启用故障，也不保存 raw、manifest 或文件清理恢复状态。实际运行结果与环境只记 DEVELOPMENT-STATUS。
+
+| 验收项 | 自动化入口与边界 |
+| --- | --- |
+| R01 | test_pipeline 的真实接收循环互斥；desktop/tests/backend.test.cjs 的 start 超时后查询状态、不重发。计划 waiting/结束后触发属于 M7；renderer 重复点击沿用既有 E2E，本轮不新增界面 |
+| R02–R03 | test_pipeline 的 zero/failure/partial、重叠重试、统计替换；test_recovery 的有限预算与已成功任务跳过 |
+| R04 | test_scoring 的在途 0 分保存/未发送任务取消；test_recovery 同时停止抓取和评分，stopping 拒绝 start/resume/rescore |
+| R05 | test_recovery 的真实 worker 异常、service 硬退出、owner 丢失、挂起请求退出时限；desktop Backend 进程组终止测试；tests/electron-recovery-smoke.cjs 强杀真实 Electron owner 后重启续跑 |
+| R06 | test_recovery 的 register_before/after、batch_before/after_commit 硬退出：提交前无半批，提交后岗位/任务/统计齐全 |
+| R07–R08 | test_recovery 变更配置/修正 Key 后 resume，以及三轮尝试耗尽（累计 3/6/9）后再次续跑成功；test_pipeline 普通代理凭据修正 |
+| R09–R12 | test_recovery 同时在途时查询/清单备注/清理 BUSY、恢复先评已入库岗位；test_scoring 跨批重叠和相同岗位不重复评分、抓取结束等待评分 |
+| R13 | test_recovery 的 score_dispatch、score_before/after_commit；同批登记两个相同评分输入但不同岗位，各自评分；test_scoring 同输入独立请求及成功结果保留 |
+| R14–R15 | test_scoring 的停止/中断后全部删除或混合存活、NOT_FOUND 零调用零尝试，以及满队列取消；test_recovery 补抓取发送边界取消 |
+| R16 | test_pipeline selected_searches_snapshot_trigger_and_global_dedup 与删除方向回归；计划移除搜索 ID/自动关闭属于 M7 |
+| 临时资源、显式 Quit | test_recovery 的删除失败记录、提交不回滚、重启清理、EOF/SIGTERM 保存成功结果、挂起 LLM 和抓取有界退出；不包含 M6 Mihomo 实例或 M7 退出确认界面 |
+
+M4 后端交付不等同于 R01/R16 的计划部分或完整 M4 renderer 交付，也不代替安装包验收。普通 HTTP 在远端成功、本地尚未提交的崩溃窗口可能重发；只保证本地已提交成功的结果不重算。
+
 
 ## M1 第 2 步验收边界（2026-10-19）
 
@@ -175,3 +195,31 @@
 ## M2 本步验收边界（2026-10-19）
 
 用户仅授权后端、协议、main/preload 具名方法和 TS 类型。B04/B08 本步验证运行列表、失效运行、is_new 筛选和导出，不改 renderer 的批次/记忆界面。评分任务持久化、开关及快照在本步验证，实际 LLM、评分重叠和停止在途评分留 M3/M4。真实平台仅在用户提供条件后测试。原项目路径不可访问时，只对文档明确语义建立合成回归，不将未核实旧规则标通过。
+
+
+## M7 后端与 main 验证入口
+
+本轮仅计划与桌面后台范围，不代表 M7 renderer、打包、签名或发布验收完成。
+
+| 验收边界 | 测试入口 |
+| --- | --- |
+| S01/S02/S05：累计错过、一次性、计划上限、校验、编辑水位、DST/时区 | backend/tests/test_schedules.py；注入 UTC 毫秒时钟，含 Chicago 跳时/重复、Lord Howe 半小时跳时、Kathmandu 非整点偏移 |
+| R01/R16/S06：互斥、FIFO、同计划等待替换、Stop/取消、rescore 占槽、重启/退出等待、删除搜索 | 同上；fake scraper/fake LLM，无网络 |
+| 迁移、原子性、保留期限、失败配置 | 同上及 test_storage/test_cleanup_export；触发更新故障回滚 run/tasks，保留期 0 与手动/自动清理 |
+| main 定时器/唤醒/迟到通知/串行检查/失败停止 | desktop/tests/schedule-clock.test.cjs；虚拟时钟 |
+| 菜单栏默认/持久开关、状态图标/进度与动作 | desktop/tests/desktop-presence.test.cjs |
+| S03/S04：无窗口/双图标隐藏时实际触发、Dock 恢复、偏好重启、Cmd+Q 确认分支及信号退出 | desktop/tests/e2e/schedules.spec.cjs；真实 Electron/service/SQLite，调度用无效合成配置形成明确 failed run，无网络；退出分支以合成 stopping 行和 dialog 适配测试 |
+
+原生确认框的实际人工/计算机检查结果、执行命令及环境只记 DEVELOPMENT-STATUS；虚拟时钟不等同于实际让 Mac 休眠数日。安装副本、Spotlight 在正式安装副本中的行为与签名发布验收仍保留后续阶段。
+
+## M5 后端验证入口
+
+`backend/tests/test_drafts.py` 使用注入的 fake LLM、临时 SQLite 和真实 service 接收循环，覆盖 A06/A07/A11/A12 的后端边界：
+
+- 搜索生成、一次追问、错误字段/ID/类型/空输出、Markdown rubric；无效生成三次耗尽或重试后成功，认证失败不重试，Retry-After 等待可取消。
+- 复用明确条件、多方向全局模板、编辑和 Apply、rubric 不自动开评分；生成 rubric 接入实际 fake 评分任务，0 分成功。
+- 输入-only 保存、模型/Key/文本缺失后输入保留、失败和重启读取、正式配置 Apply 前不变、事务故障回滚。
+- 生成与连接测试/评分共用池；排队、RPM、退避、在途取消，取消在途仍占并发且清理 BUSY，查询/备注可继续；用户后续编辑/Apply/生成不会被旧请求覆盖。
+- 真实协议的接受响应先于 drafts.generated，事件不携带 Key/简历正文；客户端重新读取持久结果。格式校验不等于事实校验，身份/资格不推断由集中 prompt 约束并留用户审阅。
+
+四协议 HTTP、全局请求间隔和网络错误分类继续由 test_llm 覆盖。本次不包含 Electron 桥接、renderer 引导、Skip 流程、视觉检查、真实模型、安装包或完整 M5 出口验收；实际命令与结果只记 DEVELOPMENT-STATUS。
