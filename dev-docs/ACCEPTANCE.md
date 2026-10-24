@@ -222,7 +222,11 @@ M4 后端交付不等同于 R01/R16 的计划部分或完整 M4 renderer 交付�
 - 生成与连接测试/评分共用池；排队、RPM、退避、在途取消，取消在途仍占并发且清理 BUSY，查询/备注可继续；用户后续编辑/Apply/生成不会被旧请求覆盖。
 - 真实协议的接受响应先于 drafts.generated，事件不携带 Key/简历正文；客户端重新读取持久结果。格式校验不等于事实校验，身份/资格不推断由集中 prompt 约束并留用户审阅。
 
-四协议 HTTP、全局请求间隔和网络错误分类继续由 test_llm 覆盖。本次不包含 Electron 桥接、renderer 引导、Skip 流程、视觉检查、真实模型、安装包或完整 M5 出口验收；实际命令与结果只记 DEVELOPMENT-STATUS。
+四协议 HTTP、全局请求间隔和网络错误分类继续由 test_llm 覆盖。
+
+Electron 桥接验证入口：`desktop/tests/business-ipc.test.cjs` 的 M5 用例覆盖 Keychain 不可用/解密失败后的旧 Key 清除、合法输入继续提交、凭据恢复后重新注入及发送方校验；`desktop/tests/e2e/drafts-bridge.spec.cjs` 使用真实 main/preload/Python/SQLite 和仅注入 fake LLM 的测试 peer，覆盖无 Key 输入保留、一轮追问、两类生成及事件、Apply 前配置不变、rubric Apply 不开启评分、状态/取消/迟到结果保留旧草稿、事件无输入/Key、重启读取与生成事件后连接存活。
+
+这些入口不包含 renderer 引导、Skip 流程、视觉检查、真实模型、安装包或完整 M5 出口验收；实际命令与结果只记 DEVELOPMENT-STATUS。
 
 ## M8 后端与真实 MCP 验证入口
 

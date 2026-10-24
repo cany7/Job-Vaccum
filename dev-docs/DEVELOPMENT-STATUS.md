@@ -1,6 +1,40 @@
 # 开发状态
 
-最新状态：2026-10-24 M6 后端与 M8 本机 MCP 已汇合；本轮修正 Resume 代理统计、统一配置/预览文档并交付。M9 和对应 React 页面仍未实施。既有验证保留在各阶段记录，本轮检查与限制见下节。
+最新状态：2026-10-24 M6 后端与 M8 本机 MCP 已汇合，M5 Electron 草稿桥接已补齐；审阅第四点「清理运行后保留岗位卡在 pending」已修复并完成新增定向验证。M5 renderer 引导/Skip、M9 仍未实施；筛选规则问题按用户要求暂缓。既有验证保留在各阶段记录，本轮检查与限制见下节。
+
+## M5 桥接与清理修复推送验证（2026-10-24，Codex）
+
+用户授权推送已有提交、创建 PR 并同步 Claude 工作区。fetch/merge origin/main 无新增变更；PR #19 包含 a915961、2ae286a，不包含根目录两份未提交的筛除文档。
+
+- 本地 backend `uv run --locked pytest -q`：354 passed / 79.09s；desktop `npm test`：类型检查、构建及 25 项 Node 测试通过；`npx --no-install playwright test tests/e2e/drafts-bridge.spec.cjs`：1 passed / 3.4s。
+- PR 首轮 CI run 40075661701：Backend、Frontend 通过，Desktop E2E 6 passed / 1 failed。失败为原有 shell 冒烟用例的具名接口清单遗漏新增 `generateDraft`，实际桥接接口符合本次契约。
+- 仅补齐该接口清单，保留完整接口集合断言；本地 `npx --no-install playwright test tests/e2e/desktop.spec.cjs --grep 'shell, About with real backend'`：1 passed / 1.8s。未改产品代码、依赖或筛除规则；合并结果以 PR/Actions 为准。
+- 测试沿用 macOS arm64 和既定锁定环境，使用合成数据，无真实抓取或模型调用，未做安装包验证。
+
+## 清理运行后评分状态修复（2026-10-24，Codex）
+
+用户授权修复第四点并本地提交。沿用 codex/dev，开工工作区干净，fetch/merge origin/main 为 Already up to date；保留此前 M5 桥接提交，不修改筛选规则、前端、依赖或数据库结构。
+
+- 清理实际删除 runs 后，在原数据库事务中处理无剩余未成功评分任务的 pending 岗位：无旧分数恢复 unscored，有旧分数恢复 succeeded，0 分同样保留。仍有 pending/running/failed/cancelled 评分任务的岗位保持 pending；已有 failed 状态及错误、成功评分字段、清单详情不改。
+- 自动清理删除运行时，即使没有删除 jobs，也发送 jobs.changed，让列表刷新状态及运行筛选结果。手动清理沿用已有通知，启动清理在 ready 前完成；不新增返回字段或修复后台任务。
+- 新增 `backend/tests/test_cleanup_score_state.py`，用合成岗位、临时 SQLite 与真实 service 接收循环覆盖手动/自动清理、0 分/旧分数/首次评分、清单保护、近期非清单岗位、保留任务和严格 cutoff、retention=0、事务故障回滚、启动查询及定时清理事件。
+
+验证沿用 macOS arm64、uv 管理的 Python 3.13.12 和锁定依赖，无网络/模型调用。仅运行新增文件：backend `uv run --locked pytest -q tests/test_cleanup_score_state.py`，修复前 **6 failed / 5.20s**（包含缺失刷新事件的等待超时；测试输入队列超时随后放宽以避免同期限竞争），修复后 **6 passed / 0.21s**；`git diff --check` 通过。未重复运行既有全量测试，未做 UI/安装包验证。仅本地提交，不 push、提 PR 或发布。
+
+## M5 Electron 草稿桥接（2026-10-24，Codex）
+
+在既有 codex/dev 工作区补齐 M5 shared/main/preload，开工 fetch/merge origin/main 为 Already up to date。新增具名 generateDraft，完整输入/内容/追问类型、draft_generate 状态及 drafts.generated 白名单和事件类型；沿用 get/save/apply、取消和事件转发，不更改 Python 业务、schema、依赖或 M8 工具。先注入当前 safeStorage Key；Keychain 不可读先清空内存 Key，仍让后端保存合法输入再返回受控错误，避免桥接提前拦截丢输入。后续 UI 的事件关联、自动保存先后顺序、追问/Apply 与恢复约定已写入 CONTRACTS 和 desktop README。
+
+验证环境沿用 macOS arm64、项目已声明 Node/npm/Electron 与 uv Python 独立环境。新增 Electron 用例使用临时 SQLite、合成输入与合成 Key，Python peer 仅替换模型 I/O 并禁止外部网络，main/preload/CLI/service 真实执行；不使用私人凭据或付费模型。
+
+| 命令 / 检查 | 实际结果 |
+| --- | --- |
+| desktop `npm run build` | TypeScript 检查与生产构建通过 |
+| desktop `node --test --test-name-pattern='M5 generation' tests/business-ipc.test.cjs` | **2 passed / 92ms**；Keychain 不可用/解密失败、输入继续提交、恢复后注入当前 Key、拒绝不可信发送方 |
+| desktop `npx --no-install playwright test tests/e2e/drafts-bridge.spec.cjs` | **1 passed / 3.5s**；真实桥接生成两类草稿、一轮追问、Apply、取消/状态、错误保留输入、重启持久与事件后连接可用 |
+| `git diff --check` | 通过 |
+
+遵守用户不重复跑既有测试的要求，未运行原有全量 Python/Node/Electron 套件；未实现引导页面、Skip 或视觉检查，未做真实模型质量、安装包验证。筛选条件和清理后孤立 pending 状态的修复不混入本次改动。仅本地提交，不推送、提 PR 或发布。
 
 ## M6 审阅修复及 M8 汇合交付（2026-10-24，Codex）
 

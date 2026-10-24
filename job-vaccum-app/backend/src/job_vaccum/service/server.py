@@ -302,7 +302,7 @@ def serve(root: Path, source: BinaryIO, destination: BinaryIO, *, clock=now_ms, 
                             if cleaned["deleted_jobs"] or cleaned["deleted_firings"] or cleaned["deleted_runs"] or cleaned["deleted_files"] or cleaned["failed_files"]:
                                 event("cleanup.completed", cleaned)
                                 service.schedules.changed = bool(cleaned["deleted_firings"])
-                                if cleaned["deleted_jobs"]:
+                                if cleaned["deleted_jobs"] or cleaned["deleted_runs"]:
                                     event("jobs.changed", {})
                         except Exception:
                             logging.error("CLEANUP_ERROR: Automatic cleanup failed.")

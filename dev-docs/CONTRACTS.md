@@ -155,7 +155,7 @@ rubric draft 返回 Markdown 字符串。用户只粘贴简历文本及少量明
 
 ### M5 后端草稿生成（2026-10-23）
 
-本节扩展 M2 草稿接口与 M3 model operation；schema_version=5、protocol_version=1 不变。当前仅 Python 实现，尚未增加 Electron shared/main/preload 的 generate 方法和事件类型，renderer 引导另行接入。现有 get/save/apply 的调用继续兼容；新增返回字段 input。
+本节扩展 M2 草稿接口与 M3 model operation；M5 不增加迁移或协议版本（汇合后 schema_version=6、protocol_version=1）。Python 与 Electron shared/main/preload 已接入，renderer 引导另行实现。现有 get/save/apply 的调用继续兼容；新增返回字段 input。
 
 - `drafts.generate {kind:"search"|"rubric",input:{text:string,conditions?:Qualifications,clarification_answer?:string}}`。text 为求职描述或粘贴的简历；conditions 沿用 rules.qualifications 的字段与校验（requires_sponsorship、work_authorization、languages、graduation_date、degrees）。省略 conditions 时复用当前已保存 qualifications；显式提供时整体使用该对象，`{}` 表示无条件。clarification_answer 仅 search 可用，为一轮追问的回答；再次提交时保留原 text。
 - 结构合法的 input 在检查非空文本、模型配置和 Key 前写入 `settings` 的 `draft_input:search` / `draft_input:rubric`，保留原文本（含换行与首尾空白）。空文本返回 VALIDATION_ERROR，缺模型返回 VALIDATION_ERROR，缺 Key 返回 AUTH_ERROR；均不启动 operation、不清空旧草稿。参数类型或条件值不合法则整体拒绝。已有 `draft:search/rubric` 继续保存可编辑内容，不新增业务表、历史副本或持久 operation。
@@ -166,6 +166,14 @@ rubric draft 返回 Markdown 字符串。用户只粘贴简历文本及少量明
 - 同一种草稿后续成功的 save/apply 或新 generate 输入保存会取消尚未结束的旧生成，防止迟到内容覆盖用户更新；其他 kind 和 model.test 不受影响。取消、失败、请求期间均保留已有可编辑草稿；只有成功生成才替换该 kind 的草稿。正式配置始终只由 Apply 更新，rubric Apply 不自动开启评分。
 - 搜索生成严格校验 JSON 字段、非空名称/表达式、boolean enabled、0..1000 的整数半径；拒绝模型指定的数据库 ID、未知字段、空方向或错误数量。正常输出一个方向、2～3 query；编辑后的手动草稿仍可增删方向/query。信息不足时接受 `{directions:[],cities:[],clarification:"简短问题"}`；带 clarification 的内容不可 Apply。传入 clarification_answer 后再次追问视为无效输出，走有限重试，不启动自主对话循环。
 - rubric 生成接受非空 Markdown 文本，拒绝 JSON 包装或外层代码围栏，不强制固定标题/关键词。身份、资格不推断及不把未知条件当冲突由 prompt 约束，格式校验不能证明内容事实正确；生成后仍需用户审阅编辑。两段内置 prompt 集中在 `backend/src/job_vaccum/llm/drafts.py`。使用简单岗位关键词约束 LinkedIn/Indeed 搜索，未指定城市时提示保留已有城市；rubric 复用明确条件及现有方向名，评分 JSON 格式继续由实际评分调用层附加。
+
+### M5 Electron 桥接与后续页面接入（2026-10-24）
+
+- preload 公开 `generateDraft({kind,input})`，返回 `ApiResult<{operation_id}>`；`getDraft/saveDraft/applyDraft` 沿用 draft_kind，shared 类型补齐 input、input-only 保存和 clarification。生成使用现有 `cancelOperation({operation_id})`、`getStatus()` 与 `onServiceEvent`，无任意 IPC/私有凭据方法暴露，不增加 M8 MCP 工具。
+- main 校验发送方后，经共用业务入口重新注入当前 safeStorage Key。Keychain 不可读时先清除 service 内存旧 Key，再让 Python 保存合法 input 并返回错误；AUTH_ERROR 显示受控 Keychain 提示，非法输入/缺模型仍保留 Python 的相应校验错误。生成不要求普通代理凭据，不向 renderer 或事件返回 Key。
+- 后续引导先订阅事件并按 operation_id 关联、暂存早到事件，再发生成；成功收到 `drafts.generated` 后 getDraft 读取内容，失败处理 `operation.failed`。现有 renderer 的 CSV/连接测试完成等待逻辑尚未接入草稿成功事件，页面实现时需按草稿事件接入，不能直接套用原 CSV 完成结果。卸载页面时解除监听；关闭页面是否取消依该流程明确调用 cancelOperation，不能把卸载视为后端自动取消。
+- 点击生成前完成已有表单自动保存；避免待执行的 debounce save 在 generate 之后落库，否则按既有规则会取消同 kind 生成。用户主动修改/Apply/重新生成取消旧请求是预期行为；旧 operation 的成功/失败不能覆盖新 operation 的页面状态。
+- 启动/重开时通过 getDraft 恢复输入和最后草稿，通过 getStatus 查看仍在运行的 operation，不自动再次生成。请求超时先查询状态/草稿，不自动重放。clarification 作为一轮追问展示并禁止 Apply；回答与原 text 一起重新生成。只有用户明确 Apply 才更新正式配置，rubric Apply 不开启评分。Skip、表单交互与视觉验收仍属于后续 renderer 工作。
 
 ## M1 第 2 步实施补充（2026-10-19）
 
@@ -210,6 +218,8 @@ rubric draft 返回 Markdown 字符串。用户只粘贴简历文本及少量明
 - 事件：`run.updated {run_id,status,stage}`、`run.stats {run_id,...stats}`，在 start/resume/stop、任务开始/提交、运行状态改变后发送；每次批次事务提交且存在岗位命中时发送 `jobs.changed {}`。UI 按事件重新查询，不解析日志；启动和恢复响应先于其事件。`app.status.active_run` 为 null 或 `{run_id,status,stage}`，configuration_complete 按当前正式配置能否 preview 判定。
 - `FilterSpec.run_ids` 空数组等同不按批次筛选；非空仅匹配 `run_jobs.is_new=1`，rescore ID 拒绝；已删除/未知运行 ID 返回空结果，前端通过 runs.list 清除失效条件。导出复用同一筛选。
 - cleanup.preview/execute 的 runs/deleted_runs 接入真实运行数；自动按 created_at 严格早于 cutoff，0 禁用。运行中手动清理 BUSY、自动延后；删除 run 仅级联任务/关系，不删存活岗位的来源/query/方向。重启将旧 running/stopping run 标 interrupted，running task 回 pending。
+
+清理评分状态补充（2026-10-24）：删除运行与清除孤立 pending 状态在同一事务完成。若保留岗位已无未成功的 score 任务，有旧分数（含 0）恢复 succeeded，否则恢复 unscored；仍有可续跑任务、已有失败状态和成功评分内容保持。自动清理删除运行时即使 deleted_jobs=0 也发送 jobs.changed，通知列表刷新评分状态及运行筛选结果；手动清理沿用已有通知，不增加返回字段。
 - preload 具名方法：`getDraft/saveDraft/applyDraft/previewRun/startRun/listRuns/getRunDetail/stopRun/resumeRun`；原 saveSettings 接收部分配置。普通代理认证使用 main 本地 `setProxyCredential({url})` / `deleteProxyCredential()`：safeStorage 加密 App 数据目录 credentials 文件，拒绝加密不可用，不回显明文；启动和 start/resume 前 main 私有 `internal.credentials {proxy_url:string|null}` 注入 service 内存，公开桥接不暴露该 method。settings.proxy.url 只允许 http/https/socks5 的无认证 origin（无 path/query/fragment），凭据 endpoint 必须与运行快照一致；off 忽略凭据且明确不使用环境代理。set 仅存凭据，不修改正式 proxy 设置。凭据错误不回显 URL 或密码；resume 可修正同 endpoint 的凭据。
 - fake scraper 仅通过 Python 测试依赖注入，覆盖成功/空/部分/失败/延迟，不增加 renderer 切换真实与模拟抓取的产品入口。
 

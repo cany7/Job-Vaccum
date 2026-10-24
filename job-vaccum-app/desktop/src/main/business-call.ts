@@ -16,9 +16,11 @@ export function createBusinessCaller(backend: Backend, dataDir: string) {
       if (!injected.ok) return injected;
     }
     let modelKeyError: ApiError | undefined;
-    if (['runs.start', 'runs.resume', 'runs.preview', 'schedules.preview', 'settings.get', 'jobs.score', 'model.test'].includes(method)) {
+    if (['runs.start', 'runs.resume', 'runs.preview', 'schedules.preview', 'settings.get', 'jobs.score', 'model.test', 'drafts.generate'].includes(method)) {
       const injected = await modelKey.inject();
       if (!injected.ok) {
+        // Draft generation must persist valid input before reporting a missing key.
+        // inject() clears any stale service key on AUTH_ERROR; let Python save first.
         if (injected.error.code !== 'AUTH_ERROR' || ['jobs.score', 'model.test'].includes(method)) return injected;
         modelKeyError = injected.error;
       }

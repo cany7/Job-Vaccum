@@ -85,6 +85,8 @@ retention_days=0 时跳过岗位、运行记录、计划触发记录及日志的
 
 删除 jobs 时级联删除该岗位的 identities、directions 关系和 run_jobs；清单中的 jobs 根本不进入候选集合。清理 runs 只删除 run_tasks、run_jobs 等运行信息，保留所有剩余 jobs、Applications 和方向／来源集合。
 
+删除运行后，在同一事务内更新剩余岗位的评分排队状态：pending 岗位若已无未成功的 score 任务，有旧 score（含 0）恢复 succeeded，无旧 score 恢复 unscored。仍有 pending/running/failed/cancelled 评分任务时保持 pending，以便续跑；已 failed/succeeded 等状态不改，旧评分、理由、时间、模型与清单详情均保留。此处理只随实际运行删除执行，retention_days=0 的自动清理不修改状态。
+
 运行记录、计划触发记录和日志按创建/触发时间保留 retention_days 天；waiting 是尚未执行的队列项，清理不删除。清理运行后触发的 run_id 置空。手动清理同时删除全部非 waiting 触发记录；手动清理删除全部运行记录、日志与临时文件，保留配置和凭据。与 pipeline/rescore/AI operation 互斥，忙时返回 BUSY，自动清理延后；UI 不显示成功直到完成。清理期间清单写入串行协调，避免加入与删除竞态。
 
 数据库清理使用事务；文件清理独立执行，不保存待删路径或文件清理恢复状态。App 自有 tmp/ 在启动及运行结束、相关子进程退出后清空，失败记录日志。日志使用标准轮转并按 retention_days 期限清理；手动清理失败须报告未完成项，不显示全部成功，也不回滚已完成的数据库清理。禁止删除用户 Mihomo 配置、用户导出 CSV 或 App 数据根目录外的文件。

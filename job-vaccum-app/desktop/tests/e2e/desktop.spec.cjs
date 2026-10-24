@@ -92,7 +92,7 @@ test('shell, About with real backend, close/reopen, single instance and Quit', {
       'executeCleanup', 'exportCsv', 'getAppInfo', 'getConnection', 'getDiagnostics', 'getJobDetail', 'getSettings', 'getStatus',
       'importSyntheticJobs', 'listJobs', 'onConnectionChange', 'onServiceEvent', 'openLink', 'ping', 'previewCleanup', 'quit',
       'removeApplications', 'reorderDirections', 'restoreApplications', 'saveDirection', 'saveQuery',
-      'applyDraft', 'deleteProxyCredential', 'getDraft', 'getRunDetail', 'listRuns', 'previewRun',
+      'applyDraft', 'deleteProxyCredential', 'generateDraft', 'getDraft', 'getRunDetail', 'listRuns', 'previewRun',
       'resumeRun', 'saveDraft', 'setProxyCredential', 'startRun', 'stopRun',
       'scoreJobs', 'testModel', 'cancelOperation', 'setModelKey', 'deleteModelKey',
       'listSchedules', 'saveSchedule', 'deleteSchedule', 'cancelFiring', 'deleteFiring',

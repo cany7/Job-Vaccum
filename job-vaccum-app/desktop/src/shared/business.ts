@@ -58,6 +58,7 @@ export type ServiceEvent =
   | { type: 'event'; name: 'cleanup.completed'; seq: number; data: CleanupResult }
   | { type: 'event'; name: 'operation.completed'; seq: number; data: { operation_id: string; row_count: number } }
   | { type: 'event'; name: 'model.test.completed'; seq: number; data: { operation_id: string; connected: true } }
+  | { type: 'event'; name: 'drafts.generated'; seq: number; data: { operation_id: string; draft_kind: import('./runs').DraftKind } }
   | { type: 'event'; name: 'operation.failed'; seq: number; data: { operation_id: string; error: ApiError } };
 export interface BusinessApi extends RunsApi, SchedulesApi {
   listJobs(params: FilterSpec & { sort?: Sort; page?: number; page_size?: number }): Promise<ApiResult<{ items: JobSummary[]; total: number }>>;
