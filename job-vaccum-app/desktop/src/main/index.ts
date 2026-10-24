@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Backend } from "./backend";
 import { registerBusinessIpc } from "./business-ipc";
+import { startMcp } from './mcp-server';
 import { ScheduleClock } from './schedule-clock';
 import { desktopPresence } from './desktop-presence';
 import type { AppStatus, ServiceEvent } from '../shared/api';
@@ -25,6 +26,7 @@ let canQuit = false;
 let confirmingQuit = false;
 let forceQuit = false;
 let clock: ScheduleClock | undefined;
+let mcp: Awaited<ReturnType<typeof startMcp>> | undefined;
 let presence: ReturnType<typeof desktopPresence> | undefined;
 let activeRun: string | null = null;
 let stoppingRun = false;
@@ -35,6 +37,7 @@ function finishQuit() {
   if (quitting) return;
   quitting = true;
   clock?.stop();
+  mcp?.close();
   void (backend?.stop() ?? Promise.resolve()).finally(() => {
     presence?.destroy();
     canQuit = true;
@@ -101,7 +104,7 @@ if (!app.requestSingleInstanceLock()) {
       finishQuit();
     })().finally(() => { confirmingQuit = false; });
   });
-  void app.whenReady().then(() => {
+  void app.whenReady().then(async () => {
     // Register after Chromium startup, which otherwise replaces native signal handlers.
     process.on("SIGTERM", () => { forceQuit = true; finishQuit(); });
     process.on("SIGINT", () => { forceQuit = true; finishQuit(); });
@@ -121,7 +124,7 @@ if (!app.requestSingleInstanceLock()) {
         return method === null ? backend!.state : backend!.request(method, method === "app.ping" ? { message } : {});
       });
     }
-    const prepareBackground = registerBusinessIpc(backend, () => window, assertSender, dataDir);
+    const { call, prepareBackground } = registerBusinessIpc(backend, () => window, assertSender, dataDir);
     presence = desktopPresence(dataDir, createWindow, () => app.quit());
     ipcMain.handle('desktop:get-preferences', (event) => { assertSender(event); return presence!.get(); });
     ipcMain.handle('desktop:set-preferences', (event, params) => { assertSender(event); return presence!.set(params); });
@@ -173,6 +176,13 @@ if (!app.requestSingleInstanceLock()) {
         { role: "unhide" }, { type: "separator" }, { role: "quit" }] },
       { role: "editMenu" }, { role: "windowMenu" },
     ]));
+    try {
+      mcp = await startMcp(dataDir, call);
+      if (quitting) mcp.close();
+    } catch {
+      void dialog.showMessageBox({ type: 'error', message: 'Local MCP could not start.',
+        detail: 'Check mcp.json in the application data folder and ensure its port is available, then quit and reopen.' });
+    }
     createWindow();
   }).catch(() => {
     console.error("Could not initialize the application data directory or desktop process.");

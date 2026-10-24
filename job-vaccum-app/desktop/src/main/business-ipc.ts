@@ -2,11 +2,10 @@ import { app, dialog, ipcMain, shell, type BrowserWindow, type IpcMainInvokeEven
 import { lstat, realpath } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import type { ApiError, ApiResult, ServiceEvent } from '../shared/api';
+import type { ApiResult, ServiceEvent } from '../shared/api';
 import { businessMethods } from '../shared/protocol';
 import type { Backend } from './backend';
-import { proxyCredentials } from './proxy-credentials';
-import { modelCredentials } from './model-credentials';
+import { createBusinessCaller } from './business-call';
 
 const invalid = (message: string): ApiResult<never> => ({ ok: false, error: { code: 'VALIDATION_ERROR', message, retryable: false } });
 
@@ -28,8 +27,7 @@ async function resolveCsvDestination(dataDir: string, destination: string): Prom
 
 export function registerBusinessIpc(backend: Backend, getWindow: () => BrowserWindow | null,
   assertSender: (event: IpcMainInvokeEvent) => void, dataDir: string) {
-  const credentials = proxyCredentials(backend, dataDir);
-  const modelKey = modelCredentials(backend, dataDir);
+  const { credentials, modelKey, call, prepareBackground } = createBusinessCaller(backend, dataDir);
   ipcMain.handle('credentials:set-model-key', (event, params: { key: string }) => {
     assertSender(event);
     return modelKey.set(params);
@@ -52,26 +50,7 @@ export function registerBusinessIpc(backend: Backend, getWindow: () => BrowserWi
     ipcMain.handle(channel, async (event, params: Record<string, unknown>) => {
       assertSender(event);
       if (method === 'dev.import_synthetic' && app.isPackaged) return invalid('Synthetic fixtures are available only in development.');
-      if (['runs.start', 'runs.resume', 'runs.preview', 'settings.get'].includes(method)) {
-        const injected = await credentials.inject();
-        if (!injected.ok) return injected;
-      }
-      let modelKeyError: ApiError | undefined;
-      if (['runs.start', 'runs.resume', 'runs.preview', 'settings.get', 'jobs.score', 'model.test'].includes(method)) {
-        const injected = await modelKey.inject();
-        if (!injected.ok) {
-          if (injected.error.code !== 'AUTH_ERROR' || ['jobs.score', 'model.test'].includes(method)) return injected;
-          modelKeyError = injected.error;
-        }
-      }
-      const result = await backend.request<Record<string, unknown>>(method, params);
-      if (modelKeyError && method === 'settings.get' && result.ok) {
-        return { ok: true, result: { ...result.result, model_key_error: modelKeyError } };
-      }
-      // The service decides from the current settings or original resume
-      // snapshot whether a key is needed; unrelated validation still wins.
-      if (modelKeyError && !result.ok && result.error.code === 'AUTH_ERROR') return { ok: false, error: modelKeyError };
-      return result;
+      return call(method, params);
     });
   }
   ipcMain.handle('export:choose-csv-destination', async (event) => {
@@ -125,14 +104,5 @@ export function registerBusinessIpc(backend: Backend, getWindow: () => BrowserWi
     }
     getWindow()?.webContents.send('app:service-event', event);
   });
-  // Background schedules also need credentials when no renderer has requested settings.
-  return async () => {
-    const proxy = await credentials.inject();
-    if (!proxy.ok) throw new Error(proxy.error.message);
-    const model = await modelKey.inject();
-    // AUTH_ERROR clears the unreadable model key; scoring validation records
-    // the failure, while schedules with automatic scoring off remain runnable.
-    if (!model.ok && model.error.code !== 'AUTH_ERROR') throw new Error(model.error.message);
-  };
-
+  return { call, prepareBackground };
 }

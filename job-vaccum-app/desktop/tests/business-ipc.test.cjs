@@ -101,7 +101,7 @@ test('background preparation injects both credentials without a window and repor
   };
   try {
     available = true; broken = false;
-    const prepare = registerBusinessIpc(backend, () => null, () => {}, directory);
+    const { prepareBackground: prepare } = registerBusinessIpc(backend, () => null, () => {}, directory);
     await prepare();
     assert.deepEqual(calls, [
       ['internal.credentials', { proxy_url: null }], ['internal.credentials', { model_key: null }],

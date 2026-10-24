@@ -37,6 +37,7 @@ export interface JobSummary {
   in_applications: boolean; application: Application | null;
 }
 export interface JobDetail extends JobSummary {
+  origin: 'scraped' | 'manual';
   description: string; links: { job_url: string | null; job_url_direct: string | null };
   queries: { query_id: string; direction_id: string; text: string }[];
   score_model: string | null; last_score_error: string | null;

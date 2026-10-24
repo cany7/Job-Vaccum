@@ -133,3 +133,13 @@ test('quit kills a service and child ignoring EOF and SIGTERM within the bound',
     assert.equal(alive, false);
   } finally { await backend.stop(); }
 });
+
+test('oversized outgoing input is rejected without breaking the backend connection', async () => {
+  const backend = peer('echo');
+  try {
+    await ready(backend);
+    const result = await backend.request('applications.create_job', { title: 'Large', description: 'x'.repeat(1024*1024) });
+    assert.equal(result.error.code, 'VALIDATION_ERROR');
+    assert.equal((await backend.request('app.ping', { message: 'still connected' })).result.message, 'still connected');
+  } finally { await backend.stop(); }
+});
