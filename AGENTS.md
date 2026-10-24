@@ -2,7 +2,7 @@
 
 ## 开发入口与范围
 
-- 先读 `dev-docs/README.md`（含阅读顺序）；产品范围以 `dev-docs/SPEC.md` 为准，按 `dev-docs/IMPLEMENTATION-PLAN.md` 的 M0–M7 顺序交付，每阶段读取相关契约。代码在 `job-vaccum-app/`（desktop 前端、backend 后端），`dev-docs/` 是唯一工程设计来源。
+- 先读 `dev-docs/README.md`（含阅读顺序）；产品范围以 `dev-docs/SPEC.md` 为准，按 `dev-docs/IMPLEMENTATION-PLAN.md` 的 M0–M9 阶段及依赖交付，每阶段读取相关契约；M8/M9 加读 `dev-docs/M8-M9-MCP.md`。代码在 `job-vaccum-app/`（desktop 前端、backend 后端），`dev-docs/` 是唯一工程设计来源。
 - 用户最新明确要求优先。日常工程细节自行决定；只完成用户授权的阶段及对应验证，不自行增加功能、扩大范围或重做已确认的设计，不以计划、空实现或静态页面代替真实交付。
 - 当前进度、验证环境及启动/测试/打包命令只在 `dev-docs/DEVELOPMENT-STATUS.md` 维护，具体操作可引用对应模块 README；不在本文件重复记录动态状态。
 

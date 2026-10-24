@@ -1,6 +1,27 @@
 # 开发状态
 
-最新状态：2026-10-23 M5 Python 后端已完成搜索草稿与评分模板生成，本地交付于 codex/dev，未推送；完整后端 **265 项通过**。生成异步、可取消、校验输出、有限重试、失败保留输入；两段 prompt 集中维护。Electron generate 桥接和 M5 renderer 尚未实现。M4、M7 后端及 main 既有交付保留；此前 22 项 Node、9 项 Electron 测试属于 M7，本轮未重跑。M6、完整引导/Skip、打包、签名与发布不在本轮范围。
+最新状态：2026-10-23 已补充 M8/M9 MCP 开发设计，尚未实现这两个阶段。本次对 codex/dev 既有 M4、M7 后端/main、M5 Python 草稿生成提交统一验证：**265 项后端、22 项 Node、9 项 Electron 测试通过**，类型检查与构建通过。M5 Electron generate 桥接与 renderer、M7 计划配置界面、M6、完整引导/Skip、打包和签名仍需各自后续交付。
+
+## M8/M9 规划与既有 Codex 提交的交付验证（2026-10-23，Codex）
+
+用户授权将 M8/M9 已确认规划写入 dev-docs，并与 Codex worktree 的未推送提交一起推送，按既定 PR/CI 流程交付。fetch 后确认 codex/dev 相对 origin/main 有 4 个业务提交（M4 恢复、M7 后端/main、计划关联修复、M5 草稿生成）；claude/dev-env 与 origin/main 相同，没有额外业务提交，两个工作区开工时均干净。Claude 相对其旧远端分支显示的领先提交已全部在主线。
+
+- 新增 `M8-M9-MCP.md`：M8 的 15 个 tools、M9 的 6 个 tools、进程职责、手动岗位来源/清单关系、计划部分更新、Run 轻量查询、配置边界、实施顺序与验收。MCP 摘要默认/最多 50、IDs 默认/最多 200，完整返回评分理由/备注，不增加 token 计数、字段截短或动态缩页。
+- README、SPEC、IMPLEMENTATION-PLAN 增加对应入口；AGENTS 阶段指引延伸至 M8/M9。没有实施 MCP、变更产品依赖或改动业务代码；先前各节“本地未推送”描述保留为当时记录。
+- 估算只使用用户本轮明确提供的 `tmp/results`，结果原文未进入 Git；tokenizer 仅用于一次性本地估算，没有加入项目依赖。回归仍使用合成数据、fake scraper/fake LLM 和 loopback 测试服务，无真实招聘网站、私人凭据或付费模型调用。
+
+验证环境：macOS arm64，Node 26.12.1、npm 11.20.0、uv 0.13.5、Python 3.13.12 / SQLite 3.54.0。
+
+| 命令 / 检查 | 实际结果 |
+| --- | --- |
+| `git fetch origin`、`git merge origin/main` | 主线已包含，Already up to date |
+| backend `uv run --locked pytest -q` | **265 passed / 76.16s** |
+| desktop `npm test` | 类型检查、生产构建通过；**22 Node tests passed / 23.51s** |
+| desktop `npx --no-install playwright test --grep '@smoke\|M7'` | **9 passed / 1.1m**；含真实无窗口计划触发、关闭/重开、Quit 与有界退出 |
+| 新增文档相对链接和入口检查 | 6 处链接有效，M8 15 tools / M9 6 tools |
+| `git diff --check` | 通过 |
+
+这里只记录已执行的本地验证；远端 PR、自动合并和 main CI 结果以本次 GitHub 交付记录为准。未执行完整 Electron 套件、安装包验收或真实 MCP 客户端联调；M8/M9 文档中的验收条目均为未来实施要求，不是本轮通过结果。
 
 ## M5 Python 后端：搜索草稿与评分模板生成（2026-10-23，Codex）
 
