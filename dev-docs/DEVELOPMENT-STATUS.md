@@ -1,6 +1,16 @@
 # 开发状态
 
-最新状态：2026-10-24 M6 后端与 M8 本机 MCP 已汇合，M5 Electron 草稿桥接已补齐并完成新增定向验证。M5 renderer 引导/Skip、M9 仍未实施；筛选规则与审阅第四点清理状态问题按用户本轮范围未修改。既有验证保留在各阶段记录，本轮检查与限制见下节。
+最新状态：2026-10-24 M6 后端与 M8 本机 MCP 已汇合，M5 Electron 草稿桥接已补齐；审阅第四点「清理运行后保留岗位卡在 pending」已修复并完成新增定向验证。M5 renderer 引导/Skip、M9 仍未实施；筛选规则问题按用户要求暂缓。既有验证保留在各阶段记录，本轮检查与限制见下节。
+
+## 清理运行后评分状态修复（2026-10-24，Codex）
+
+用户授权修复第四点并本地提交。沿用 codex/dev，开工工作区干净，fetch/merge origin/main 为 Already up to date；保留此前 M5 桥接提交，不修改筛选规则、前端、依赖或数据库结构。
+
+- 清理实际删除 runs 后，在原数据库事务中处理无剩余未成功评分任务的 pending 岗位：无旧分数恢复 unscored，有旧分数恢复 succeeded，0 分同样保留。仍有 pending/running/failed/cancelled 评分任务的岗位保持 pending；已有 failed 状态及错误、成功评分字段、清单详情不改。
+- 自动清理删除运行时，即使没有删除 jobs，也发送 jobs.changed，让列表刷新状态及运行筛选结果。手动清理沿用已有通知，启动清理在 ready 前完成；不新增返回字段或修复后台任务。
+- 新增 `backend/tests/test_cleanup_score_state.py`，用合成岗位、临时 SQLite 与真实 service 接收循环覆盖手动/自动清理、0 分/旧分数/首次评分、清单保护、近期非清单岗位、保留任务和严格 cutoff、retention=0、事务故障回滚、启动查询及定时清理事件。
+
+验证沿用 macOS arm64、uv 管理的 Python 3.13.12 和锁定依赖，无网络/模型调用。仅运行新增文件：backend `uv run --locked pytest -q tests/test_cleanup_score_state.py`，修复前 **6 failed / 5.20s**（包含缺失刷新事件的等待超时；测试输入队列超时随后放宽以避免同期限竞争），修复后 **6 passed / 0.21s**；`git diff --check` 通过。未重复运行既有全量测试，未做 UI/安装包验证。仅本地提交，不 push、提 PR 或发布。
 
 ## M5 Electron 草稿桥接（2026-10-24，Codex）
 

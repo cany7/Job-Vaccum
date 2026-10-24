@@ -62,6 +62,13 @@ class Cleanup:
             predicate, values, cutoff, disabled = self.candidates(mode)
             deleted = db.execute(f'DELETE FROM jobs WHERE {predicate}', values).rowcount
             deleted_runs = db.execute('DELETE FROM runs WHERE ' + ('0' if disabled else 'created_at < ?' if cutoff is not None else '1'), [cutoff] if cutoff is not None else []).rowcount
+            if deleted_runs:
+                # A retained job is no longer queued once its last unfinished score
+                # task is gone. Preserve any previous success, including a zero score.
+                db.execute("""UPDATE jobs SET score_state=CASE WHEN score IS NULL THEN 'unscored' ELSE 'succeeded' END
+                    WHERE score_state='pending' AND NOT EXISTS (
+                        SELECT 1 FROM run_tasks t WHERE t.kind='score' AND t.status!='succeeded'
+                        AND json_extract(t.spec_json,'$.job_id')=jobs.id)""")
             deleted_firings = db.execute("DELETE FROM schedule_firings WHERE outcome!='waiting' AND " + ('0' if disabled else 'scheduled_at < ?' if cutoff is not None else '1'), [cutoff] if cutoff is not None else []).rowcount
         # File cleanup is separate: keep successfully committed database deletion.
         removed, failed = 0, []

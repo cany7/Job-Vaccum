@@ -218,6 +218,8 @@ rubric draft 返回 Markdown 字符串。用户只粘贴简历文本及少量明
 - 事件：`run.updated {run_id,status,stage}`、`run.stats {run_id,...stats}`，在 start/resume/stop、任务开始/提交、运行状态改变后发送；每次批次事务提交且存在岗位命中时发送 `jobs.changed {}`。UI 按事件重新查询，不解析日志；启动和恢复响应先于其事件。`app.status.active_run` 为 null 或 `{run_id,status,stage}`，configuration_complete 按当前正式配置能否 preview 判定。
 - `FilterSpec.run_ids` 空数组等同不按批次筛选；非空仅匹配 `run_jobs.is_new=1`，rescore ID 拒绝；已删除/未知运行 ID 返回空结果，前端通过 runs.list 清除失效条件。导出复用同一筛选。
 - cleanup.preview/execute 的 runs/deleted_runs 接入真实运行数；自动按 created_at 严格早于 cutoff，0 禁用。运行中手动清理 BUSY、自动延后；删除 run 仅级联任务/关系，不删存活岗位的来源/query/方向。重启将旧 running/stopping run 标 interrupted，running task 回 pending。
+
+清理评分状态补充（2026-10-24）：删除运行与清除孤立 pending 状态在同一事务完成。若保留岗位已无未成功的 score 任务，有旧分数（含 0）恢复 succeeded，否则恢复 unscored；仍有可续跑任务、已有失败状态和成功评分内容保持。自动清理删除运行时即使 deleted_jobs=0 也发送 jobs.changed，通知列表刷新评分状态及运行筛选结果；手动清理沿用已有通知，不增加返回字段。
 - preload 具名方法：`getDraft/saveDraft/applyDraft/previewRun/startRun/listRuns/getRunDetail/stopRun/resumeRun`；原 saveSettings 接收部分配置。普通代理认证使用 main 本地 `setProxyCredential({url})` / `deleteProxyCredential()`：safeStorage 加密 App 数据目录 credentials 文件，拒绝加密不可用，不回显明文；启动和 start/resume 前 main 私有 `internal.credentials {proxy_url:string|null}` 注入 service 内存，公开桥接不暴露该 method。settings.proxy.url 只允许 http/https/socks5 的无认证 origin（无 path/query/fragment），凭据 endpoint 必须与运行快照一致；off 忽略凭据且明确不使用环境代理。set 仅存凭据，不修改正式 proxy 设置。凭据错误不回显 URL 或密码；resume 可修正同 endpoint 的凭据。
 - fake scraper 仅通过 Python 测试依赖注入，覆盖成功/空/部分/失败/延迟，不增加 renderer 切换真实与模拟抓取的产品入口。
 
