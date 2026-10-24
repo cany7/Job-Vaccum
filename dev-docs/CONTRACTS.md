@@ -201,7 +201,7 @@ rubric draft 返回 Markdown 字符串。用户只粘贴简历文本及少量明
 - renderer 本机 UI 偏好 `jobVaccum.ui` 增加 `lists.jobs` / `lists.shortlist`：各页的筛选（相对时间范围保存为天数，自定义范围保存为本地日期，请求时换算为 UTC 毫秒半开区间或 YYYY-MM-DD）、排序、每页条数、显示的列和列宽。读取时逐项校验，非法或失效值回到默认；页码与勾选只在会话内。已删除方向的筛选在读取方向列表后移除并提示。
 - 侧边栏计数用 `jobs.list` 的 `total`（page_size=1）：发现页全部、清单全部、每个方向的发现页数量；不新增计数命令。
 - renderer 对本窗口发出的、成功后会产生 jobs.changed 的命令计数，对应事件只触发两页静默刷新；其余 jobs.changed（自动清理等）显示「Results updated · Refresh」，不自动重排当前列表。
-- JD 用 markdown-it（html: false，禁用图片）渲染；新增运行依赖 markdown-it 14.3.2（package-lock 锁定）。
+- JD 用 markdown-it（html: false，禁用图片）渲染；运行依赖 markdown-it 14.3.3（package-lock 锁定）。
 
 ## M2 后端与桌面桥接（2026-10-19）
 
