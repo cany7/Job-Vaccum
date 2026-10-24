@@ -200,7 +200,7 @@ def test_schedule_migration_preserves_old_rows_and_rolls_back(tmp_path):
     assert not db.execute("SELECT name FROM sqlite_master WHERE name='schedules'").fetchone()
     migrate(db)
     assert db.execute('SELECT value_json FROM settings').fetchone()[0] == '3'
-    assert db.execute('SELECT version FROM schema_version').fetchone()[0] == 5
+    assert db.execute('SELECT version FROM schema_version').fetchone()[0] == 6
     db.close()
 
 

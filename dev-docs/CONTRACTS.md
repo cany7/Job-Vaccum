@@ -291,3 +291,30 @@ fake LLM 仅 Python 测试依赖注入，支持成功（含 0 分）、无效输
 - `cleanup.preview` 增加 `firings`；`cleanup.execute`/cleanup.completed 增加 `deleted_firings`。waiting 不作为清理候选；0 保留期仍关闭自动清理；计划配置不删除。
 - 计划保存/删除、等待开始、取消、未运行变化、删除搜索及触发记录清理发送 `schedules.updated {}`。run.updated/run.stats 继续用于自动启动的运行。
 - preload 具名 API：listSchedules、saveSchedule、deleteSchedule、cancelFiring、deleteFiring；startRun 接受上述扩展。主进程本机偏好具名 API `getDesktopPreferences()` / `setDesktopPreferences({show_menu_bar_icon:boolean})` 返回该偏好，默认 true，保存在 userData/desktop-preferences.json；不写业务 settings。两者沿用受信任 sender 验证。Appearance 的开关及 Runs 计划编辑器由后续 renderer 阶段接入。
+
+## M8：本机 MCP 与共用业务补充（schema 6）
+
+MCP 只开放 [M8-M9-MCP](M8-M9-MCP.md) 列出的 15 个工具。官方 TypeScript SDK 在 Electron main 提供无会话 Streamable HTTP，`POST /mcp`，每次请求独立协议实例，结果只有一份 `content[0].text` 紧凑 JSON，不重复到 structuredContent。业务错误为 `isError:true` 和 `{error:{code,message,retryable}}`；后端断开返回 WORKER_EXITED。无需 OAuth、SSE 会话、通知重放或第二个 service。
+
+main 的 `business-call.ts` 共用凭据注入和 backend.request；IPC 仍校验受信 sender，MCP 校验本地 token/Host/Origin。`schedules.preview` 同 `runs.preview` 注入凭据以执行既有依赖检查。新增命令仅 main 内部使用，不增加 React 页面或任意 method preload。
+
+| Service 命令 | 参数 / 返回 |
+| --- | --- |
+| `jobs.query` | 原 FilterSpec + sort/page/page_size/view；summary 默认/最多 50，ids 默认/最多 200。返回 `{items或ids,total,page,page_size,has_more}`；固定列投影，ID 模式仅查 ID/总数，summary 不加载 JD/来源/query/方向数组。summary 字段见 M8 设计，清单管理字段平铺，Jobs 无 notes |
+| `jobs.detail` | 原 `job_id`；完整详情新增 `origin:scraped/manual`，其他字段兼容 |
+| `applications.create_job` | title 必填；company/location/job_type/description/job_url/job_url_direct/date_posted/status/notes 可选。同事务创建 manual job 和 application；返回 `{job_id,status,notes,added_at,updated_at}` |
+| `applications.update_job` | job_id + 上述字段的非空部分更新；两类岗位可改 status/notes，仅 manual 可改内容，内容与管理字段原子提交；返回同上 |
+| `directions.list` | `{}` → `{items:[当前方向及queries]}`；不读取完整 settings、不发送写入事件 |
+| `schedules.get` | `{schedule_id}` → 计划字段/next_at + `firings`（仅该计划的简要触发记录） |
+| `schedules.update` | schedule_id + enabled/direction_ids/time/weekdays/timezone 的非空部分更新。service 串行读取合并，复用完整 save 校验/事务；返回 get 同形对象 |
+| `schedules.preview` | schedule_id 或 direction_ids，严格互斥，均省略使用全部启用搜索；返回原 preview 字段 + schedule_id/direction_ids，不创建 Run |
+| `runs.summaries` | page 默认1、page_size 默认/最多50；可选 kind、statuses、created_from/to（UTC毫秒半开区间）、schedule_id。默认包含 pipeline/rescore；返回分页对象 |
+| `runs.summary` | `{run_id}` → 与 summaries.items 相同的单条摘要；不存在/已清理为 NOT_FOUND |
+
+Run 摘要只含 id/kind/status/stage/created_at/started_at/finished_at/trigger/stats。stats 包含 retrieval/scoring 的 total/succeeded/failed/active/pending/cancelled，以及 received_count/filtered_count/matched_job_count/new_job_count（沿用已提交统计）；不读取完整配置快照、tasks、jobs 或 error。原 runs.list/detail 的默认 kind、200 条上限与 UI 诊断保持兼容。
+
+手动内容校验：title trim 后非空；description 接受 null 转空字符串，其他可选内容接受 null/空字符串转 NULL；notes 允许空字符串但不接受 null。job_url/job_url_direct 非空必须为无认证 HTTP(S) URL，date_posted 非空必须为 YYYY-MM-DD；不新增字符预算。company_key 与 direct_url identity 使用原规范化；创建遇到已有唯一身份或非空公司/JD 的历史精确匹配返回 VALIDATION_ERROR，调用方用既有 ID 加入清单，不自动合并。编辑直链冲突整笔回滚；移除旧主直链时保留已抓取来源仍使用的身份。创建/编辑返回在事务提交前检查既有 1 MiB 响应上限。
+
+`applications.*` 成功后沿用 jobs.changed，计划修改沿用 schedules.updated；响应先于事件。MCP set_shortlist_status 从既有 set_status 返回中只投影 job_id/outcome/counts，UI Undo 仍保留原修改前快照。get_app_status 仅投影 available/busy/active_run/operations，不公开配置、输入、路径或秘密。main 发往 service 的超大请求在发送前按既有 1 MiB 限制拒绝，不将无 ID 错误变成连接故障。
+
+连接配置为数据目录 `mcp.json`，仅 `{port,token}`，0600；首次使用随机 256-bit token 与系统分配端口，监听成功后保存实际端口，后续复用。port 可手动设置 1..65535（0 重新分配），token 至少43个 base64url 字符；编辑须先 Quit。无效文件/端口冲突明确报错，不自动换端口或降级。仅监听 127.0.0.1；Host 仅 `127.0.0.1:<实际端口>` / `localhost:<实际端口>`，Origin 可省略，若提供只接受上述 authority 的 `http://` 完整 origin。认证用 `Authorization: Bearer <token>`；失败401，Host/Origin失败403，不回显 token；认证后非 POST 为405，其他路径404。关窗继续服务，确认 Quit 后立即关闭 HTTP listener/连接并按原流程结束 Python。

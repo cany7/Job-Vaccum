@@ -302,7 +302,7 @@ def test_m1_to_m2_migration_preserves_data_and_failure_rolls_back(tmp_path):
         db.executescript('CREATE TABLE schema_version(version INTEGER PRIMARY KEY);INSERT INTO schema_version VALUES(2);' + (MIGRATIONS / '001.sql').read_text() + (MIGRATIONS / '002.sql').read_text())
         repo = Repository(db, lambda: NOW)
         import_synthetic(repo, {'count': 1})
-        before = repo.list_jobs({})
+        before = db.execute('SELECT id,title,description,score,sources_json,queries_json FROM jobs').fetchall()
         broken = tmp_path / 'broken'
         broken.mkdir()
         (broken / '003.sql').write_text('CREATE TABLE runs(id TEXT);\nINVALID SQL;\n')
@@ -312,8 +312,9 @@ def test_m1_to_m2_migration_preserves_data_and_failure_rolls_back(tmp_path):
         assert db.execute('SELECT version FROM schema_version').fetchone()[0] == 2
         assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='runs'").fetchone()
     with closing(connect(path)) as db:
-        assert Repository(db).list_jobs({}) == before
-        assert db.execute('SELECT version FROM schema_version').fetchone()[0] == 5
+        assert db.execute('SELECT id,title,description,score,sources_json,queries_json FROM jobs').fetchall() == before
+        assert Repository(db).list_jobs({})['total'] == 1
+        assert db.execute('SELECT version FROM schema_version').fetchone()[0] == 6
 
 
 def test_jobspy_whitelist_attrs_missing_values_and_native_shapes():
@@ -753,7 +754,7 @@ def test_m2_to_trigger_migration_keeps_runs_as_untriggered(tmp_path):
     db = connect(path)
     s = Service(db, tmp_path, clock=lambda: NOW)
     try:
-        assert db.execute('SELECT version FROM schema_version').fetchone()[0] == 5
+        assert db.execute('SELECT version FROM schema_version').fetchone()[0] == 6
         item = s.dispatch('runs.list', {})['items'][0]
         assert item['id'] == 'old' and item['trigger'] is None and item['searches'] is None
     finally:

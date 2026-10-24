@@ -83,6 +83,36 @@ class Schedules:
         items.sort(key=lambda s: (s['id'] not in priority, s['time'], s['id']))
         return {'items': items, 'firings': sorted(firings, key=lambda f: (f['scheduled_at'], f['id']), reverse=True)}
 
+    def get(self, params):
+        fields(params, {'schedule_id'}, {'schedule_id'})
+        identifier = string(params['schedule_id'], 'schedule_id')
+        self.row(identifier)
+        listing = self.list({})
+        return {**next(s for s in listing['items'] if s['id'] == identifier),
+                'firings': [f for f in listing['firings'] if f['schedule_id'] == identifier]}
+
+    def update(self, params):
+        keys = {'enabled', 'direction_ids', 'time', 'weekdays', 'timezone'}
+        fields(params, keys | {'schedule_id'}, {'schedule_id'})
+        if not keys & params.keys():
+            raise CommandError('Provide a schedule field to update.')
+        identifier = string(params['schedule_id'], 'schedule_id')
+        # The service serializes commands and clock checks. Read/merge/save uses
+        # the existing validation and save transaction, with no async gap.
+        row = self.row(identifier)
+        self.save({'id': identifier, **{k: params.get(k, row[k]) for k in keys}})
+        return self.get({'schedule_id': identifier})
+
+    def preview(self, params):
+        fields(params, {'schedule_id', 'direction_ids'})
+        if 'schedule_id' in params and 'direction_ids' in params:
+            raise CommandError('Choose schedule_id or direction_ids, not both.')
+        selected = params.get('direction_ids')
+        if 'schedule_id' in params:
+            selected = self.row(string(params['schedule_id'], 'schedule_id'))['direction_ids']
+        result = self.runs.preview({'direction_ids': selected})
+        return {**result, 'schedule_id': params.get('schedule_id'), 'direction_ids': selected}
+
     def save(self, params):
         required = {'enabled', 'direction_ids', 'time', 'weekdays', 'timezone'}
         fields(params, required | {'id'}, required)

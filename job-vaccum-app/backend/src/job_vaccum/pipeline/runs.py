@@ -207,6 +207,56 @@ class Runs:
         rows = row_dict(self.db.execute('SELECT * FROM runs WHERE kind=? ORDER BY created_at DESC,id LIMIT ? OFFSET ?', (kind, size, (page - 1) * size)))
         return {'items': [self.summary(r) for r in rows], 'total': total}
 
+    def compact_summary(self, row):
+        result = {k: row[k] for k in ('id', 'kind', 'status', 'created_at', 'started_at', 'finished_at')}
+        stats = json.loads(row['stats_json'])
+        result['stats'] = {k: stats.get(k, 0) for k in ('received_count', 'filtered_count', 'matched_job_count', 'new_job_count')}
+        for kind in ('retrieval', 'scoring'):
+            result['stats'][kind] = {k: stats.get(kind, {}).get(k, 0) for k in ('total', 'succeeded', 'failed', 'active', 'pending', 'cancelled')}
+        result.update(trigger=json.loads(row['trigger_json'] or 'null'), stage=self.stage(row['id'], row['status']))
+        return result
+
+    def summaries(self, params, *, single=False):
+        columns = 'id,kind,status,created_at,started_at,finished_at,stats_json,trigger_json'
+        if single:
+            fields(params, {'run_id'}, {'run_id'})
+            row = next(row_dict(self.db.execute(f'SELECT {columns} FROM runs WHERE id=?', (string(params['run_id'], 'run_id'),))), None)
+            if row is None:
+                raise CommandError('Run not found.', 'NOT_FOUND')
+            return self.compact_summary(row)
+        fields(params, {'page', 'page_size', 'kind', 'statuses', 'created_from', 'created_to', 'schedule_id'})
+        page = integer(params.get('page', 1), 'page', 1, 2**31-1)
+        size = integer(params.get('page_size', 50), 'page_size', 1, 50)
+        clauses, values = [], []
+        if 'kind' in params:
+            clauses.append('kind=?')
+            values.append(choice(params['kind'], 'kind', ('pipeline', 'rescore')))
+        if 'statuses' in params:
+            statuses = strings(params['statuses'], 'statuses')
+            for status in statuses:
+                choice(status, 'status', (*ACTIVE, 'succeeded', 'partial', 'failed', 'stopped', 'interrupted'))
+            if statuses:
+                clauses.append('status IN (' + ','.join('?' for _ in statuses) + ')')
+                values.extend(statuses)
+        for key, operator in (('created_from', '>='), ('created_to', '<')):
+            if key in params:
+                clauses.append(f'created_at {operator} ?')
+                values.append(integer(params[key], key))
+        if 'created_from' in params and 'created_to' in params and params['created_from'] >= params['created_to']:
+            raise CommandError('Date ranges must have from < to.')
+        if 'schedule_id' in params:
+            clauses.append("json_extract(trigger_json,'$.schedule_id')=?")
+            values.append(string(params['schedule_id'], 'schedule_id'))
+        where = ' AND '.join(clauses) or '1'
+        with self.db:
+            self.db.execute('BEGIN')
+            total = self.db.execute(f'SELECT count(*) FROM runs WHERE {where}', values).fetchone()[0]
+            rows = row_dict(self.db.execute(f'SELECT {columns} FROM runs WHERE {where} ORDER BY created_at DESC,id LIMIT ? OFFSET ?',
+                                           [*values, size, (page-1)*size]))
+            items = [self.compact_summary(row) for row in rows]
+        return {'items': items, 'total': total, 'page': page, 'page_size': size,
+                'has_more': (page-1)*size + len(items) < total}
+
     def detail(self, params):
         fields(params, {'run_id', 'task_page', 'task_page_size'}, {'run_id'})
         identifier = string(params['run_id'], 'run_id')

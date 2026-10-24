@@ -4,7 +4,7 @@ Python 3.13 service, UTF-8 JSON Lines on stdin/stdout. Only Python owns
 `app.sqlite3`. Migration 001 creates settings; migration 002 adds jobs,
 identities, directions/queries, job directions and applications. Existing M0
 settings survive migration. M2 adds retrieval and runs; M3 adds Custom HTTP
-models and scoring (see below). Scheduling remains a later milestone.
+models and scoring (see below). Scheduling is supplied by the M7 service and Electron clock.
 
 From the repository root:
 
@@ -25,7 +25,7 @@ Startup clears App-owned tmp resources and checks retention; automatic cleanup c
 First output, only after the lock and migrations succeed:
 
 ```json
-{"type":"event","name":"ready","seq":1,"data":{"protocol_version":1,"app_version":"0.1.0","schema_version":4}}
+{"type":"event","name":"ready","seq":1,"data":{"protocol_version":1,"app_version":"0.1.0","schema_version":6}}
 ```
 
 Requests contain `type: "request"`, a string `id` (1–128 characters), a
@@ -36,7 +36,7 @@ characters or contain multiple complete messages.
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `app.status` | `{}` | `{active_run:null, operations:[], cleanup:{status:"idle"}, configuration_complete:false, storage:{schema_version:4,journal_mode:"wal"}}` |
+| `app.status` | `{}` | `{active_run:null, operations:[], cleanup:{status:"idle"}, configuration_complete:false, storage:{schema_version:6,journal_mode:"wal"}}` |
 | `app.ping` | `{message:string}` (≤256 characters) | `{message:string}` |
 | `app.diagnostics` | `{}` | Offline Python/architecture/dependency versions, declared locked JobSpy commit, native curl version, SQLite transactional read/write result |
 
@@ -321,3 +321,33 @@ service loop. See the M5 section of [CONTRACTS](../../dev-docs/CONTRACTS.md) for
 the complete API and [DEVELOPMENT-STATUS](../../dev-docs/DEVELOPMENT-STATUS.md) for
 executed checks. Electron generate bindings/event types and the onboarding UI
 are outside this Python-only delivery.
+
+## M8 shared business paths
+
+Schema 6 adds `jobs.origin` (scraped/manual); existing jobs remain scraped.
+Discover queries/exports exclude manual records; Shortlist reads both origins.
+`applications.create_job` atomically creates a title-only manual job and its
+Shortlist relation. `applications.update_job` allows partial content edits only
+for manual jobs and status/notes for either origin. Both return management fields,
+not JD; validation and response-size failures roll back the entire transaction.
+Optional content clears with null (description becomes empty text); title cannot
+be cleared, and notes uses an empty string. Normalized direct-link conflicts and
+nonempty historical content matches reject duplicate creation rather than merge.
+Existing identities, scores and cleanup protection remain shared with ingestion.
+
+`jobs.query` reuses FilterSpec and stable sorting with a dedicated SQL projection:
+summary defaults/max 50; ids defaults/max 200. Neither mode loads JD or associated
+arrays. `jobs.list` keeps its UI 200-row contract. `jobs.detail` adds origin.
+`directions.list` reads only directions/queries. `schedules.get/update/preview`
+reuse existing schedules and validation; update is a partial merge in the serial
+service path. `runs.summaries/summary` load only status/timestamps/trigger/counts,
+never full run detail, and support kind/status/created-time/schedule filtering.
+See [CONTRACTS](../../dev-docs/CONTRACTS.md) for exact field definitions.
+
+The HTTP MCP server runs in Electron main, not this Python process. MCP writes
+emit the same jobs.changed / schedules.updated events as existing UI writes.
+`tests/test_m8.py` covers transactions, migration, projection and business edges;
+`tests/mcp_peer.py` injects existing FakeScraper/FakeLlm into the real CLI solely
+for the desktop protocol tests. It is not a production switch or packaged entry.
+Connection examples and protocol test instructions are in the desktop README;
+actual verification results are recorded in DEVELOPMENT-STATUS.

@@ -125,3 +125,11 @@ M2 内容匹配使用现有 sources_json 中后来补入的有效 direct_url 参
 schema 5 建立 schedules / schedule_firings，保留既有岗位、配置、运行及 trigger_json。额外 partial unique indexes 保证每个计划至多一个 waiting 和一个 not_run。触发登记、创建 run/tasks、更新 firing.run_id 与一次性计划关闭在同一事务提交。
 
 checked_at 是每个计划的检查水位，由 main 时钟调用 service 更新；新建/保存从保存时刻起计算，时钟倒退不降低水位。保留该水位可使已合并、手动删除或过期清理的触发也不会被旧定时通知重放。它不是额外运行快照或独立恢复表。
+
+## M8 手动岗位迁移与事务
+
+迁移 006 仅向 jobs 增加 `origin TEXT NOT NULL DEFAULT 'scraped' CHECK(origin IN ('scraped','manual'))`，既有数据原地保留并标 scraped；不新建表。所有 Discover 查询（包括既有列表、导出及按筛选评分）排除 manual；Shortlist 仍由 applications 关系读取两类岗位，detail 返回 origin。
+
+手动创建只要求 title，缺失 description 存空字符串，缺失来源/query/方向为空集合，不伪造平台、Search 或发布日期；first_seen_at 为本机创建时间。jobs + applications 在同一事务写入，初始评分为空/unscored，不创建评分任务。清理按既有 applications 保护，无额外正文副本；移出清单后遵循普通清理规则。
+
+手动编辑在同一事务中修改允许的内容、company_key、直链 identity 及清单 status/notes/updated_at，added_at 与首次发现/评分不变。抓取实体禁止内容覆盖。唯一直链或非空 JD/公司精确历史匹配的重复创建明确拒绝，保留已有实体及清单字段；不自动合并。直链编辑维护已有身份唯一约束，抓取后补入的来源身份不随主直链编辑丢失。抓取命中手动实体仍按现有先入库固定规则合并关联，不改变 origin 或旧正文。

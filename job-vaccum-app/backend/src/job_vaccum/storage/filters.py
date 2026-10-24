@@ -62,7 +62,7 @@ def build_filter(params, *, paged=False):
         raise CommandError('Application filters require applications scope.')
     if scope == 'applications' and 'in_applications' in params:
         raise CommandError('in_applications requires discover scope.')
-    clauses, values = [], []
+    clauses, values = (["j.origin='scraped'"] if scope == 'discover' else []), []
     if scope == 'applications':
         clauses.append('a.job_id IS NOT NULL')
     if 'text' in params:

@@ -1,7 +1,7 @@
 from pathlib import Path
 import sqlite3
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 MIGRATIONS = Path(__file__).with_name("migrations")
 
 

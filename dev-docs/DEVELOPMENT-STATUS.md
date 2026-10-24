@@ -1,6 +1,26 @@
 # 开发状态
 
-最新状态：2026-10-23 已补充 M8/M9 MCP 开发设计，尚未实现这两个阶段。本次对 codex/dev 既有 M4、M7 后端/main、M5 Python 草稿生成提交统一验证：**265 项后端、22 项 Node、9 项 Electron 测试通过**，类型检查与构建通过。M5 Electron generate 桥接与 renderer、M7 计划配置界面、M6、完整引导/Skip、打包和签名仍需各自后续交付。
+最新状态：2026-10-24 M8 后端业务补充已完成，Electron MCP 接入正在完成同轮联调与本地交付；M9 未实施。历史阶段记录保留如下。
+
+## M8 后端业务补充（2026-10-24，Codex）
+
+本轮明确只交付 M8，不开发 React 页面或 M9。开工读取 AGENTS、README 及相关工程契约；当前 codex/dev 工作区干净，git fetch origin 后 git merge origin/main 返回 Already up to date。未修改另一 worktree、未读取其未提交实现，未修改用户 Skills 或使用私人凭据。
+
+- schema 6 原地新增 jobs.origin；已有岗位标 scraped。手动岗位与 Shortlist 原子创建、内容/状态/备注原子部分编辑，沿用 company_key/直链规范化、身份唯一约束、完整响应大小检查及清理保护。重复身份/非空精确历史内容拒绝创建，抓取正文不可覆盖；抓取命中手动实体保留 origin/正文/旧分。
+- jobs.query 复用 FilterSpec/稳定排序，SQL 直接投影摘要或 ID；summary 默认/最多50，ids 默认/最多200，完整理由/备注；原 jobs.list 的200条契约不变。directions.list 不公开 settings 内部配置。
+- schedules.get/update/preview 复用 M7 当前值合并、校验/保存、触发及凭据规则；runs.summaries/summary 只读状态/统计，不加载 tasks/jobs/完整配置。原 UI methods 保持兼容。更新 CONTRACTS、DATA-MODEL 和 backend README。
+
+验证环境：macOS 27.0.1 arm64，uv 0.13.5、Python 3.13.12、SQLite 3.54.0；使用临时库、合成数据和既有 fake scraper/fake LLM，无真实网络调用。
+
+| 命令 / 检查 | 实际结果 |
+| --- | --- |
+| backend `uv run --locked pytest -q` | **276 passed / 75.84s** |
+| backend `uv run --locked pytest -q tests/test_m8.py tests/test_pipeline.py tests/test_business_protocol.py tests/test_schedules.py` | 最终归一化空JD边界调整及新增两项用例后 **99 passed / 1.59s**；M8文件共13项 |
+| `git diff --check` | 通过 |
+
+初轮失败为迁移后的旧版本断言、旧库测试在迁移前调用含 origin 的新查询，以及一次迁移夹具编辑误缩进；已修正夹具，未给产品增加旧 schema 回退。新增验证覆盖迁移失败回滚、岗位/清单插入原子性、非法编辑/超大返回回滚、稀疏手动内容、身份冲突、抓取命中不覆盖、旧来源identity保留、手动/自动清理保护、分页批量及UI兼容、Schedule更新后新时刻触发与历史快照不变、轻量Run过滤和已清理NOT_FOUND。
+
+本节记录后端子交付；完整 Electron/MCP 链路和连接示例的结果在本轮下一节记录，后端测试本身不算 MCP 完整验收。仅本地提交，不 push、提 PR 或合并 main。
 
 ## M8/M9 规划与既有 Codex 提交的交付验证（2026-10-23，Codex）
 
