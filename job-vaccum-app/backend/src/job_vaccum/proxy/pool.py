@@ -5,19 +5,22 @@ import threading
 import time
 
 from job_vaccum.proxy.mihomo import exit_ipv4
+from job_vaccum.pipeline.advanced import MIHOMO
 from job_vaccum.service.protocol import CommandError
 
 
 class PortPool:
-    def __init__(self, config, nodes, controller, stop, *, probe=exit_ipv4,
+    def __init__(self, config, nodes, controller, stop, *, probe=None,
                  clock=time.monotonic, wait=None, shuffle=random.shuffle):
-        self.config, self.nodes, self.controller, self.stop = config, list(nodes), controller, stop
-        self.probe, self.clock, self.wait, self.shuffle = probe, clock, wait or stop.wait, shuffle
+        self.config, self.nodes, self.controller, self.stop = {**MIHOMO, **config}, list(nodes), controller, stop
+        self.probe, self.clock, self.wait, self.shuffle = probe or (lambda port: exit_ipv4(port, stop)), clock, wait or stop.wait, shuffle
         self.lock = threading.Lock()
-        self.active, self.testing, self.cooling = {}, set(), {}
+        self.active, self.testing, self.cooling, self.failed_nodes = {}, set(), {}, {}
         self.stats = dict(rotations=0, candidate_failures=0, retained=0, pressure_events=0, disabled_ports=0)
 
     def _exit(self, port):
+        if self.stop.is_set():
+            raise ValueError
         ip = ipaddress.IPv4Address(self.probe(port))
         if not ip.is_global:
             raise ValueError
@@ -26,6 +29,18 @@ class PortPool:
     def _available_ip(self, ip, port, old=None):
         return (ip != old and self.cooling.get(ip, 0) <= self.clock()
                 and all(other_ip != ip for p, (_, other_ip) in self.active.items() if p != port))
+
+    def _check_delay(self, node):
+        checks = []
+        for _ in range(2):
+            if self.stop.is_set():
+                raise ValueError
+            try:
+                checks.append(self.controller.delay(node, self.config['delay_threshold_ms']))
+            except (CommandError, OSError):
+                checks.append(False)
+        if not all(checks) or self.stop.is_set():
+            raise ValueError
 
     def rotate(self, port):
         old = self.active.get(port)
@@ -36,22 +51,14 @@ class PortPool:
             if self.stop.is_set() or tested >= self.config['max_candidates']:
                 break
             with self.lock:
-                if node in self.testing or any(n == node for n, _ in self.active.values()):
+                if (node in self.testing or any(n == node for n, _ in self.active.values())
+                        or self.failed_nodes.get(node, 0) > self.clock()):
                     continue
                 self.testing.add(node)
             tested += 1
             accepted = False
             try:
-                checks = []
-                for _ in range(2):
-                    if self.stop.is_set():
-                        raise ValueError
-                    try:
-                        checks.append(self.controller.delay(node, self.config['delay_threshold_ms']))
-                    except (CommandError, OSError):
-                        checks.append(False)
-                if not all(checks):
-                    raise ValueError
+                self._check_delay(node)
                 self.controller.select(port, node)
                 ip = self._exit(port)
                 with self.lock:
@@ -66,6 +73,7 @@ class PortPool:
             except (CommandError, ValueError, OSError):
                 with self.lock:
                     self.stats['candidate_failures'] += 1
+                    self.failed_nodes[node] = self.clock() + self.config['failed_node_cooldown_seconds']
             finally:
                 try:
                     if not accepted and old:
@@ -92,6 +100,7 @@ class PortPool:
             elif self.rotate(port):
                 return True
             elif port in self.active and not self.stop.is_set():
+                self._check_delay(self.active[port][0])
                 ip = self._exit(port)
                 with self.lock:
                     old_node, old_ip = self.active[port]

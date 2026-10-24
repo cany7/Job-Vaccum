@@ -32,6 +32,7 @@ export interface MihomoConfig {
   executable_path: string | null; config_path: string | null;
   port_count: number; concurrency_per_port: number; batch_size: number;
   start_port: number; controller_port: number; cooldown_seconds: number; max_candidates: number;
+  failed_node_cooldown_seconds: number;
   delay_threshold_ms: number; pressure_backoff_seconds: number; retain_wait_seconds: number; http_429_ratio: number;
 }
 export interface AdvancedParameters extends Omit<RunParameters, 'retrieval_concurrency'> {

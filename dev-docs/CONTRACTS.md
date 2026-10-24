@@ -305,7 +305,7 @@ M6 本次仅交付后台及 shared 类型，不新增 React 页面或 MCP 工具
 | `mihomo` | 下表本地路径及调度参数；对象内省略字段保留，不接收节点内容、控制密钥或任意额外字段 |
 | `proxy.mode` | 扩展为 `off/ordinary/mihomo`；沿用完整 `{mode,url}` 对象写入。`url` 仍仅接受无认证 origin 或 null，Mihomo 模式忽略它；Mihomo 要求 `run_mode=advanced` |
 
-保存只更新配置，不启动内核或访问网络。非法字段/类型/组合整笔拒绝，返回 VALIDATION_ERROR，不部分落库。非代理池模式不要求 Mihomo 文件存在；保存路径允许 null，非空时须为绝对本地路径。仅在预览/开始/续跑 Mihomo pipeline 时读取用户节点文件校验。进程启动、端口及控制/出口检测在后台运行，失败反映于 run/error 和未执行 task/error，错误码 PROXY_ERROR；不切直连。
+保存只更新配置，不启动内核或访问网络。非法字段/类型/组合整笔拒绝，返回 VALIDATION_ERROR，不部分落库。非代理池模式不要求 Mihomo 文件存在；保存路径允许 null，非空时须为绝对本地路径。预览/开始/续跑不全局读取 Mihomo 节点文件；仅有待执行 LinkedIn 任务时在后台专用实例启动前校验，以免阻断 Indeed。进程启动、端口及控制/出口检测在后台运行，失败反映于 run/error 和未执行 task/error，错误码 PROXY_ERROR；不切直连。
 
 | `advanced_parameters` 字段 | 高级初值 | 校验与执行 |
 | --- | --- | --- |
@@ -314,7 +314,7 @@ M6 本次仅交付后台及 shared 类型，不新增 React 页面或 MCP 工具
 | `retrieval_concurrency` | `{linkedin:1,indeed:1}` | 各平台正整数；高级直连/普通代理分别限制两平台，Mihomo 中仅 Indeed 使用此值，LinkedIn 使用端口并发 |
 | `timeout_seconds` | 600 | 有限正数；整次抓取尝试的超时 |
 | `max_attempts` | 3 | 正整数；抓取及 LLM 的有限尝试总数，显式 Resume 重新给予预算 |
-| `retry_base_seconds` | 5 | 有限正数；任务/LLM 指数退避的基础秒数，可停止 |
+| `retry_base_seconds` | 5 | 有限正数；直连/普通代理抓取、Mihomo 中 Indeed 及 LLM 的指数退避基础秒数，可停止；Mihomo LinkedIn 归队重试使用端口压力退避 |
 | `llm_concurrency` / `llm_rpm` | 4 / 30 | 并发正整数、RPM 有限正数；评分、测试、草稿及重试共享非突发 gate |
 | `llm_connect_timeout_seconds` / `llm_read_timeout_seconds` | 10 / 120 | 有限正数；实际 requests connect/read timeout，读取超时不是整次请求总时限 |
 
@@ -324,8 +324,9 @@ M6 本次仅交付后台及 shared 类型，不新增 React 页面或 MCP 工具
 | --- | --- | --- |
 | `executable_path` / `config_path` | null / null | 用户提供的可执行内核和具体节点 YAML 路径；不导入订阅或 provider-only 配置 |
 | `port_count` / `start_port` / `controller_port` | 8 / 7901 / 9099 | 正整数、端口 1..65535；连续 listener 范围不得越界或包含 controller |
-| `concurrency_per_port` / `batch_size` | 2 / 2 | 正整数；batch_size 是每端口每批 JobSpy **任务数**，含该任务的有限重试；每批最多 concurrency_per_port 并行 |
+| `concurrency_per_port` / `batch_size` | 2 / 2 | 正整数；batch_size 是每端口每批 JobSpy **任务尝试数**（首次或归队重试）；每批最多 concurrency_per_port 并行，同任务总预算仍由 max_attempts 限制 |
 | `cooldown_seconds` | 300 | 有限正数；换下/停用出口的冷却秒数 |
+| `failed_node_cooldown_seconds` | 60 | 有限正数；失败候选节点跨端口共享的暂避秒数，与出口 IP 冷却独立；旧配置/快照缺少时按 60 执行 |
 | `max_candidates` / `delay_threshold_ms` | 30 / 1000 | 正整数候选上限 / 有限正数延迟阈值；每候选两次 HTTPS 检测（停止可中断），任一次失败淘汰 |
 | `pressure_backoff_seconds` / `retain_wait_seconds` | 30 / 5 | 有限正数；压力轮换前退避，失败再退避一次；普通轮换失败复检旧出口通过后短等 |
 | `http_429_ratio` | 0.15 | 有限数 `(0,1]`；本端口本批实际 429 / HTTP 请求数达到阈值即压力；访问失败也形成压力 |
@@ -336,19 +337,19 @@ M6 本次仅交付后台及 shared 类型，不新增 React 页面或 MCP 工具
 {"run_mode":"advanced","advanced_parameters":{"results_wanted":{"linkedin":25},"retrieval_concurrency":{"linkedin":2},"llm_rpm":20},"proxy":{"mode":"off","url":null}}
 ```
 
-Mihomo 仅接管 LinkedIn，Indeed 独立直连；普通代理则两个平台同地址。App 仅提取具体 `proxies`，不复制用户 rules/providers/groups/tun/系统代理配置；节点须可独立拨号，不支持 `dialer-proxy` 依赖用户组或 DIRECT 等伪节点。临时组/HTTP listeners 绑定 127.0.0.1，默认规则 REJECT；控制密钥随机产生，目录 0700、临时配置 0600，不写 SQLite/快照/诊断。用户原配置不修改。控制与出口检测忽略环境代理；出口检测只能通过对应 listener，接受公网 IPv4。HTTPS 延迟 URL 为 gstatic generate_204，出口检测 URL 为 api.ipify.org，属于检测实现常量，不新增网络请求编辑器。
+Mihomo 仅接管 LinkedIn，Indeed 独立直连；普通代理则两个平台同地址。App 仅提取具体 `proxies`，不复制用户 rules/providers/groups/tun/系统代理配置；节点须可独立拨号，不支持 `dialer-proxy` 依赖用户组或 DIRECT 等伪节点。临时组/HTTP listeners 绑定 127.0.0.1，默认规则 REJECT；控制密钥随机产生，目录 0700、临时配置 0600，不写 SQLite/快照/诊断。用户原配置不修改。控制与出口检测忽略环境代理；出口检测只能通过对应 listener，接受公网 IPv4。HTTPS 延迟 URL 为 gstatic generate_204，出口检测依次使用 api.ipify.org 和失败时的备用 ipv4.icanhazip.com，停止后不发备用请求；属于检测实现常量，不新增网络请求编辑器。
 
-成功 query 即使底层收到后恢复了 429 也不重跑；`http_requests/http_429` 累计每次尝试的真实 HTTP 调用。端口在途任务全部耗尽再切换，其他端口继续执行。失败候选恢复旧节点；普通轮换允许验证旧出口后短等复用，压力轮换禁止保留旧出口。两次压力轮换失败则停用端口，未领取任务留在共享待执行队列供其他端口使用；全部停用时剩余任务 failed/PROXY_ERROR、尝试数为 0，已提交结果保留。`runs.detail.stats.proxy`（run.stats 同步）返回 `rotations/candidate_failures/retained/pressure_events/disabled_ports`，只含计数，不含节点/出口/凭据；这组计数描述本次 start/resume，任务尝试历史仍累计。
+成功 query 即使底层收到后恢复了 429 也不重跑；`http_requests/http_429` 累计每次尝试的真实 HTTP 调用。端口在途任务全部耗尽再切换，其他端口继续执行。失败候选恢复旧节点；普通轮换须对旧节点做两次延迟复检及公网 IPv4 验证后短等复用；允许合格的出口 IP 变化，仍须原子检查去重/冷却并更新记录。压力轮换禁止保留旧出口。两次压力轮换失败则停用端口，未领取任务留在共享待执行队列供其他端口使用；全部停用时剩余任务 failed/PROXY_ERROR；未尝试任务次数为 0，已归队的失败任务保留实际尝试数及 HTTP 统计并提交可用部分结果，已提交结果保留。`runs.detail.stats.proxy`（run.stats 同步）返回 `rotations/candidate_failures/retained/pressure_events/disabled_ports`，只含计数，不含节点/出口/凭据；这组计数描述本次 start/resume，任务尝试历史仍累计。
 
 Mihomo 与抓取协调器退出后才结束本轮；Stop 保留已发出成功评分并等待抓取有界退出。内核由本次创建的 owner 进程持有，通过管道 EOF 处理 service 意外消失，结束并回收自己的内核、删除专用目录；不读旧 PID、不扫描/终止用户实例。Electron 原有进程组强制退出仍有效；极端进程组硬杀留下的 App tmp 由下次持锁启动清理。关闭窗口不触发上述退出。
 
 M8/M9 交接：通过原 `settings.get/save` 白名单选择这些非秘密字段即可，不复制校验/存储；调用 `runs.preview` 核对有效参数。抓取配置工具可映射 `run_mode`、`advanced_parameters`，若开放代理管理则显式白名单 `proxy` 和 `mihomo` 的上述字段；不要直接返回整个 settings。模型 Key、普通代理认证、节点内容、控制密钥不在此接口内。文件路径只作本机配置，不返回文件内容。此处定义字段，不实现或替另一 Session 决定 MCP 工具范围。
 
-### M6 后续调整的目标契约（2026-10-24）
+### M6 调整补充契约（2026-10-24）
 
-本节定义用户确认的后续接口与语义调整，不表示现有接口已经支持；实施状态见 DEVELOPMENT-STATUS。上述表格描述的现有接口保持可查，后续实现须同步修改表格、shared 类型和验收。
+本节细化上述配置及运行语义；实施和验证记录见 DEVELOPMENT-STATUS。
 
-- 新增 `mihomo.failed_node_cooldown_seconds`：默认 **60**，有限正数，单位秒；按失败候选节点暂避，与按出口 IP 冷却的 `cooldown_seconds=300` 独立。沿用 `settings.get/save` 的非秘密嵌套部分更新及原子校验；启动时进入 `config_snapshot.mihomo`，运行中修改不影响当前轮，Resume 使用原快照。旧设置/旧快照缺少该字段时补默认 60，不新增 schema 迁移。M8/M9 仅在后端落地后按明确白名单接入，不能提前向当前后端发送该字段。
+- 新增 `mihomo.failed_node_cooldown_seconds`：默认 **60**，有限正数，单位秒；按失败候选节点暂避，与按出口 IP 冷却的 `cooldown_seconds=300` 独立。沿用 `settings.get/save` 的非秘密嵌套部分更新及原子校验；启动时进入 `config_snapshot.mihomo`，运行中修改不影响当前轮，Resume 使用原快照。旧设置/旧快照缺少该字段时补默认 60，不新增 schema 迁移。M8/M9 可通过既有 settings.get/save 按明确白名单接入；MCP 工具本身仍由对应阶段负责。
 - Mihomo 的 `batch_size` 改为每端口每批领取的**任务尝试数**，包括首次尝试或归队重试；`max_attempts` 仍限制每个任务的总尝试数，不因换端口、换批次而重置。重试、部分结果、实际请求计数及 Stop/Resume 约束见 PIPELINE §7.1。全端口停用时，未尝试任务计数仍为 0；已尝试后归队的任务保留实际尝试数、统计及可提交部分结果。
 - 仅 Indeed 的运行不依赖 Mihomo 文件校验或启动；混合运行的代理失败只阻止对应 LinkedIn 路径，Indeed 独立执行。预览/开始/续跑的校验边界须与此一致，不能在全局预检阶段提前阻断 Indeed。
 - 切换 PUT 后确认 GET `now`；普通旧节点保留须补两次延迟复检，允许通过去重/冷却检查后的出口 IP 变化。出口检测增加固定备用服务 `https://ipv4.icanhazip.com`，仍只经指定 listener。检测地址不成为可编辑配置。具体流程见 PIPELINE §7.1。

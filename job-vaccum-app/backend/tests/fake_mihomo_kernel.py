@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import threading
+from urllib.parse import unquote, urlsplit
 
 
 def main():
@@ -18,6 +19,7 @@ def main():
         return
     Path(args.d, 'kernel.pid').write_text(str(os.getpid()))
     listeners = []
+    selected = {g['name']: g['proxies'][0] for g in config['proxy-groups']}
     class ProxyHandler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
@@ -39,9 +41,12 @@ def main():
                 return
             self.send_response(200)
             self.end_headers()
-            self.wfile.write(json.dumps({'version': 'synthetic'} if self.path == '/version' else {'delay': 20}).encode())
+            group = unquote(urlsplit(self.path).path.removeprefix('/proxies/'))
+            value = {'version': 'synthetic'} if self.path == '/version' else {'now': selected[group]} if group in selected else {'delay': 20}
+            self.wfile.write(json.dumps(value).encode())
         def do_PUT(self):
-            self.rfile.read(int(self.headers['Content-Length']))
+            value = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            selected[unquote(self.path.removeprefix('/proxies/'))] = value['name']
             self.send_response(204)
             self.end_headers()
     host, port = config['external-controller'].split(':')

@@ -144,6 +144,7 @@ def settings(repo):
         if key in result:
             result[key] = json.loads(raw)
     result['directions'] = repo.directions()
+    result['mihomo'] = {**MIHOMO, **result['mihomo']}
     return result
 
 

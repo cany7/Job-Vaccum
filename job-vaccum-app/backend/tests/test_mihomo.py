@@ -160,8 +160,8 @@ def test_exit_dedup_restore_and_cooldown():
     assert pool.prepare(7902) and pool.active[7902] == ('c', '1.1.1.1')
     assert pool.prepare(7901)  # duplicate b rejected; a is reverified and retained
     assert ctrl.selected[7901] == 'a' and clock.waits == [5]
-    assert pool.stats['candidate_failures'] == 2
-    assert ctrl.checks.count(('a', 1000)) == 2
+    assert pool.stats['candidate_failures'] == 1  # failed b is shared across ports
+    assert ctrl.checks.count(('a', 1000)) == 4  # retention repeats both checks
     pool.disable(7901)
     assert not pool.prepare(7903)  # old exit cooling, other node occupied
     clock.now += 300
@@ -322,6 +322,7 @@ def test_rotation_waits_for_whole_batch_and_other_port_continues(service, node_c
 
 def test_stop_during_pool_start_cleanup_no_direct_fallback(service, node_config):
     s = service
+    configure(s, sites=['linkedin'])
     setup_mihomo(s, node_config, port_count=1)
     entered = threading.Event()
     class SlowInstance(FakeInstance):
@@ -603,7 +604,10 @@ def test_scheduled_pool_failure_records_run_and_releases_waiting(service, node_c
     s.schedules.advance(event)
     drain(s)
     runs = s.runs.list({})['items']
-    assert len(runs) == 2 and all(r['status'] == 'failed' and r['error']['code'] == 'PROXY_ERROR' for r in runs)
+    assert len(runs) == 2 and all(r['status'] == 'partial' and r['error']['code'] == 'PROXY_ERROR' for r in runs)
+    for run in runs:
+        tasks = detail(s, run['id'])['tasks']
+        assert all(t['status'] == ('succeeded' if t['spec']['site'] == 'indeed' else 'failed') for t in tasks)
     assert all(r['trigger']['source'] == 'schedule' for r in runs)
     assert not s.repo.db.execute("SELECT 1 FROM schedule_firings WHERE outcome='waiting'").fetchone()
 

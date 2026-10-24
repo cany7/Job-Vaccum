@@ -17,6 +17,7 @@ MIHOMO = {
     'executable_path': None, 'config_path': None,
     'port_count': 8, 'concurrency_per_port': 2, 'batch_size': 2,
     'start_port': 7901, 'controller_port': 9099, 'cooldown_seconds': 300,
+    'failed_node_cooldown_seconds': 60,
     'max_candidates': 30, 'delay_threshold_ms': 1000,
     'pressure_backoff_seconds': 30, 'retain_wait_seconds': 5,
     'http_429_ratio': 0.15,

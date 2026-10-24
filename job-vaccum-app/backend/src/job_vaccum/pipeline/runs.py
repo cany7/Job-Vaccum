@@ -8,7 +8,6 @@ from job_vaccum import JOBSPY_COMMIT
 from job_vaccum.pipeline.configuration import PARAMETERS, proxy_origin, validate_model
 from job_vaccum.pipeline.advanced import effective
 from job_vaccum.pipeline.retrieval import execute
-from job_vaccum.proxy.mihomo import nodes_from
 from job_vaccum.llm.http import score_result
 from job_vaccum.pipeline.ingest import ingest
 from job_vaccum.pipeline.scraper import process_attempt
@@ -95,7 +94,7 @@ class Runs:
         if proxy['mode'] == 'off':
             return None
         if proxy['mode'] == 'mihomo':
-            nodes_from(snapshot['mihomo'])
+            # Validate inside the LinkedIn lane so Indeed can run independently.
             return None
         if not proxy['url']:
             raise CommandError('Set the ordinary proxy address first.')

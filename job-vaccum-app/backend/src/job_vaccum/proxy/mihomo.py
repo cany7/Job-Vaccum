@@ -20,6 +20,7 @@ from job_vaccum.service.protocol import CommandError
 
 DELAY_URL = 'https://www.gstatic.com/generate_204'
 EXIT_URL = 'https://api.ipify.org'
+EXIT_FALLBACK_URL = 'https://ipv4.icanhazip.com'
 
 
 def failure(message):
@@ -157,7 +158,11 @@ class Controller:
             raise failure('Mihomo controller returned an invalid version.')
 
     def select(self, port, node):
-        self.request('PUT', '/proxies/' + quote(f'job-vaccum-{port}', safe=''), json={'name': node})
+        path = '/proxies/' + quote(f'job-vaccum-{port}', safe='')
+        self.request('PUT', path, json={'name': node})
+        value = self.request('GET', path)
+        if not isinstance(value, dict) or value.get('now') != node:
+            raise failure('Mihomo node selection could not be confirmed.')
 
     def delay(self, node, threshold):
         value = self.request('GET', '/proxies/' + quote(node, safe='') + '/delay',
@@ -167,19 +172,23 @@ class Controller:
         return type(delay) in (int, float) and 0 < delay <= threshold
 
 
-def exit_ipv4(port):
-    try:
-        with requests.Session() as session:
-            session.trust_env = False
-            proxy = f'http://127.0.0.1:{port}'
-            with session.get(EXIT_URL, proxies={'http': proxy, 'https': proxy}, timeout=(3, 5), allow_redirects=False) as response:
-                response.raise_for_status()
-                address = ipaddress.IPv4Address(response.text.strip())
-                if not address.is_global:
-                    raise ValueError
-                return str(address)
-    except (requests.RequestException, ValueError):
-        raise failure('Could not verify a public IPv4 through the Mihomo listener.') from None
+def exit_ipv4(port, stop=None):
+    with requests.Session() as session:
+        session.trust_env = False
+        proxy = f'http://127.0.0.1:{port}'
+        for url in (EXIT_URL, EXIT_FALLBACK_URL):
+            if stop is not None and stop.is_set():
+                break
+            try:
+                with session.get(url, proxies={'http': proxy, 'https': proxy}, timeout=(3, 5), allow_redirects=False) as response:
+                    response.raise_for_status()
+                    address = ipaddress.IPv4Address(response.text.strip())
+                    if not address.is_global:
+                        raise ValueError
+                    return str(address)
+            except (requests.RequestException, ValueError):
+                continue
+    raise failure('Could not verify a public IPv4 through the Mihomo listener.') from None
 
 
 class Instance:

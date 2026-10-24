@@ -1,8 +1,49 @@
 # 开发状态
 
-最新状态：2026-10-24 本工作区已交付 **M6 后端高级参数与 Mihomo 初版**；原版源码对照后的后续调整已获用户确认并写入文档，**尚未实现或验证**，见下节。初版 306 项后端、22 项 Node、9 项 Electron smoke/M7 测试通过，arm64 冻结后端和假内核协议验证通过，这些结果不覆盖新增调整。M6 React 页面、真实 Mihomo/节点及完整安装包验证未完成；M5/M7 既有 UI 和发行待办保留。另一 Session 的 M8/M9 工作不由本记录推断或覆盖。
+最新状态：2026-10-24 **M6 后端六项调整已实现**；333 项后端、22 项 Node、9 项 Electron smoke/M7 回归通过，arm64 冻结后端与假内核协议验证通过。已使用用户授权的本地 Mihomo 验证双出口、换出口和清理；一次真实 LinkedIn 请求返回 429，抓取成功仍未验证。React/MCP 未在本轮实现，完整安装包验收未完成；保留其他阶段及另一 Session 的记录与边界。
 
-## M6 后续调整：仅文档记录（2026-10-24，Codex）
+## M6 六项调整实施与真实验证（2026-10-24，Codex）
+
+### 范围与实现
+
+继续使用指定 `job-vaccum-gui-claude` / `claude/dev-env`，开工干净；`git fetch origin` 后 `git merge origin/main` 为 Already up to date。没有修改其他 worktree、MCP 或 React，没有依赖或 lockfile 变动。用户本轮明确授权开始实现、使用本地 Mihomo、少量真实招聘抓取，并授权自行查找内核/配置与选择最小测试条件；以下真实验证取代此前「暂不测试」限制，仅限本轮测试。
+
+- Mihomo LinkedIn 每次派发一次 JobSpy 尝试，可重试失败在本批在途耗尽后归队；健康端口等待在途批次返回工作，停用端口归还领取的批次。尝试预算按任务累计，部分记录/HTTP/429 在内存聚合，终态只提交一次；全端口停用时仍提交已尝试任务的可用部分结果和真实统计。Stop 不再发起归队尝试。
+- Indeed 在专用内核校验/启动前独立派发；Indeed-only 无需有效节点路径、零内核启动。Mihomo 校验不再在 preview/start/resume 的全局预检阻断 Indeed，相关错误在后台 LinkedIn 路径明确记录。
+- 控制客户端 PUT 后 GET 确认 `now`，恢复旧节点同样确认。普通保留增加两次延迟复检，允许合格的新 IP，并检查活动出口去重/冷却和更新记录；压力出口禁止保留。
+- `mihomo.failed_node_cooldown_seconds` 已进入 settings、校验、快照执行及 shared 类型，默认 60 秒、有限正数；跨端口共享失败节点截止时间，旧设置和旧快照缺字段按 60 执行，与出口 IP 的 300 秒冷却独立。M8/M9 可用原 `settings.get/save` 白名单接入，字段和批次新语义见 CONTRACTS「M6 调整补充契约」。
+- 出口检测先 ipify，失败/非法公网 IPv4 后才尝试 icanhazip；均使用同一 listener、有限超时、忽略环境代理，停止后不发备用请求。App 不改用户源配置、系统代理或现有实例。
+
+### 本轮执行的验证
+
+环境沿用下方初版记录：macOS arm64、Python 3.13.12、锁定依赖/JobSpy SHA，npm/uv 管理约定不变。后端命令在 `job-vaccum-app/backend`，桌面命令在 `job-vaccum-app/desktop`。
+
+| 命令/检查 | 实际结果 |
+| --- | --- |
+| `uv run --locked pytest -q tests/test_mihomo.py tests/test_mihomo_followup.py` | **68 passed / 2.82s**；新增 27 项，含跨端口重试、耗尽保留部分结果、真实次数统计、独立 Indeed、停止、旧快照、参数期限与出口备用服务边界 |
+| `uv run --locked pytest -q` | **333 passed / 78.89s**；包含既有恢复、计划、评分、owner SIGKILL 清理回归 |
+| `npm test` | 类型检查/生产构建通过，**22 Node tests passed / 23.51s** |
+| `npx --no-install playwright test --grep '@smoke\|M7'` | **9 passed / 11.8s**；后台窗口关闭、计划、Quit 及强制退出回归 |
+| `uv run --locked pyinstaller ../packaging/backend.spec --noconfirm --distpath ../dist/backend --workpath ../build/backend` | arm64 onedir 构建成功 |
+| `uv run --locked python tests/mihomo_service_smoke.py ../dist/backend/job-vaccum-service/job-vaccum-service` | PASS；冻结后端、真实 spawn owner、本地假控制接口回读、出口拒绝、零直连、tmp 清理与 EOF 退出 |
+| `git diff --check` | 通过 |
+
+### 真实内核、出口与网站结果
+
+只读使用 Clash Verge 自带的 `/Applications/Clash Verge.app/Contents/MacOS/verge-mihomo`（`-v`：Mihomo Meta v1.19.29 darwin arm64，go1.22.12）与 `$HOME/Library/Application Support/io.github.clash-verge-rev.clash-verge-rev/clash-verge.yaml` 中的 44 个具体独立节点。没有读取原项目 .env、模型 Key、私人岗位结果；未输出或提交节点名称、出口 IP、凭据、配置副本或抓取内容。两个 App 专用 listener 使用 17901–17902，controller 为 19099；源文件前后直接字节比较相同，没有修改现有 Clash Verge 实例。
+
+手动入口 `tests/manual_mihomo.py` 不被 pytest 收集，必须显式传内核与配置路径；通过 CLI 传入路径，不写入产品代码。两次执行的公共前缀如下：
+
+```sh
+uv run --locked python tests/manual_mihomo.py --kernel '/Applications/Clash Verge.app/Contents/MacOS/verge-mihomo' --nodes "$HOME/Library/Application Support/io.github.clash-verge-rev.clash-verge-rev/clash-verge.yaml"
+```
+
+1. 加 `--query 'software engineer' --location 'Chicago, IL' --results 3`：两个端口、每候选延迟门槛 1000ms、每次最多 5 候选，1 个端口通过，另 1 个停用；8 次候选失败。对可用端口只发出 **1 次 LinkedIn HTTP 请求，1 次 429、0 条结果**，JobSpy 平台诊断映射为 NETWORK_ERROR，未重试、未直连回退、没有调用 LLM。HTTP 429 统计仍准确，不能宣称真实抓取成功。
+2. 不传 query，改加 `--delay-threshold-ms 3000 --max-candidates 10`：仅代理探测，**两个端口均就绪、出口 IP 不同、随后成功换到新出口**；3 次成功选择/轮换、4 次候选失败、0 端口停用。不再次访问招聘网站。
+
+两轮均确认专用实例正常关闭、App 临时资源移除、源配置字节不变、listener/controller 端口可重新绑定。真实测试不保证所有 44 个节点可用，不等同于完整 .app/DMG 安装验收或真实进程组硬杀验收；异常退出和压力退避由上述合成/假内核测试覆盖。真实 Indeed/普通代理抓取、付费模型、React 页面均未测试或实现。真实 LinkedIn 成功抓取仍受此次 429 阻断；没有通过重复大量请求来追求成功。
+
+## M6 后续调整：仅文档记录（2026-10-24，Codex，历史）
 
 本轮用户仅要求把待修改内容写入文档。工作目录仍为 `job-vaccum-gui-claude` / `claude/dev-env`，开工干净；不修改另一 worktree、代码、依赖或 MCP。本次原项目源码路径可访问，前序对照仅只读检查 `src/proxy_pool.py`、`src/run-pipeline.py`、`src/job-retrieve.py`，没有读取私人节点配置；以下记录补充初版交付说明，不将初版测试视为原版行为完全对齐。
 
@@ -15,7 +56,7 @@
 - 新增非秘密参数 `mihomo.failed_node_cooldown_seconds`，默认 60 秒、有限正数；这是按失败节点暂避，与现有 `cooldown_seconds=300` 的出口 IP 冷却不同。目前代码/接口尚不支持新字段。
 - 增加固定备用出口检测服务 ipv4.icanhazip.com，主检测 ipify 失败时经同一 listener 尝试，不直连、不循环重试。
 
-保持专用实例、自动选节点、用户原配置不变、失败不转直连、部分端口可继续工作的设计；无需用户预设 App 专用代理规则。不恢复原版要求所有端口同时初始化成功的限制。实施细节及配置交接见 PIPELINE §7.1、CONTRACTS「M6 后续调整的目标契约」，测试要求见 ACCEPTANCE 对应小节，IMPLEMENTATION-PLAN M6 已链接。
+保持专用实例、自动选节点、用户原配置不变、失败不转直连、部分端口可继续工作的设计；无需用户预设 App 专用代理规则。不恢复原版要求所有端口同时初始化成功的限制。实施细节及配置交接见 PIPELINE §7.1、CONTRACTS「M6 调整补充契约」（原目标契约），测试要求见 ACCEPTANCE 对应小节，IMPLEMENTATION-PLAN M6 已链接。
 
 本轮仅检查文档差异与 `git diff --check`，未运行应用或测试；未启动真实 Mihomo、未读取私人配置、未发送真实网络检测或招聘请求。用户已说明本机有内核和代理配置，但尚未提供路径和真实测试范围，且明确要求暂不测试。后续实现与测试不得标记为本轮完成。
 
