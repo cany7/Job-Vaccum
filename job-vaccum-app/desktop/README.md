@@ -298,5 +298,21 @@ network I/O; tool responses are not mocked. It covers all 15 tools, cross-page
 updates, live/completed runs, rescore, event forwarding, no-window writes,
 restart, cleanup, Quit, token/Host/Origin rejection and backend loss. The test
 fixture cannot be selected by renderer or MCP and is outside packaged files.
-Actual commands/results and outstanding package/M6 validation live in
+Actual commands/results and outstanding package/integration validation live in
 [DEVELOPMENT-STATUS](../../dev-docs/DEVELOPMENT-STATUS.md).
+
+### M6 shared configuration handoff
+
+`shared/runs.ts` now describes `run_mode`, nested `advanced_parameters` patches,
+`mihomo` paths/scheduling parameters, `proxy.mode="mihomo"`, effective parameter
+snapshots and aggregate proxy diagnostics. Existing `getSettings/saveSettings`
+and run methods carry them without new IPC or renderer controls. Mihomo creates
+its own controller secret in the backend; it does not need another credential
+API. Ordinary proxy credentials retain the existing safeStorage bridge. See
+[CONTRACTS M6](../../dev-docs/CONTRACTS.md#m6-后端配置与执行2026-10-24)
+before adding a settings page or an explicit MCP configuration whitelist.
+
+M8 `preview_run` uses the same backend preview and receives the effective
+retrieval/LLM parameters without exposing the full proxy configuration or probing
+connectivity. MCP Run queries remain summaries without configuration snapshots.
+Reading/editing advanced or Mihomo configuration belongs to the deferred M9 tools.

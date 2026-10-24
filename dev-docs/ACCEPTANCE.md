@@ -229,4 +229,31 @@ M4 后端交付不等同于 R01/R16 的计划部分或完整 M4 renderer 交付�
 - `backend/tests/test_m8.py`：schema 6 原地迁移/失败回滚；手动岗位与清单原子创建、内容/管理部分编辑与回滚、直链身份和精确历史内容边界；清理保护与重新连接；固定摘要/ID投影、200-ID批量、原 UI 200条契约；Schedule部分更新/预览与轻量Run查询。
 - `desktop/tests/e2e/mcp.spec.cjs`：官方 SDK MCP 客户端经过真实 HTTP、Electron main 共用业务入口、Python CLI/service 和 SQLite，全部15个tool；405条跨页收集再写入、Search/分数/日期/状态筛选、50/200上限、完整理由/备注/JD；实际 fake scraper/LLM 的 pipeline/rescore 进度、既有事件；无窗口读写、重启持久、清理保护、Quit断连、token/Host/Origin拒绝、后端退出。
 - MCP fixtures 只替换网络I/O，不替换工具响应；没有生产测试开关。SDK 客户端示例在 `desktop/scripts/mcp-client.mjs`，Codex/Claude配置示例在 desktop README。
-- 以上开发态入口不等于安装包、签名、公证或实际 Codex/Claude 模型调用验收。M6 新执行参数与 MCP preview 的合并联调、M9 配置工具另行交付，实际结果只写 DEVELOPMENT-STATUS。
+- 以上开发态入口不等于安装包、签名、公证或实际 Codex/Claude 模型调用验收。M6 汇合后 MCP preview 沿用后端有效参数，配置编辑仍属于 M9；实际合并验证与限制只写 DEVELOPMENT-STATUS。
+
+## M6 后端验证入口
+
+`backend/tests/test_mihomo.py` 使用临时 SQLite、合成节点、FakeController、注入出口探测/时钟、fake scraper/LLM，以及 `fake_mihomo_kernel.py` 的本地假可执行内核：
+
+- P01：默认/高级参数保存与原子拒绝、嵌套部分更新、重启读取、有效快照/Resume；高级直连与普通代理两平台实际并发；LLM 并发/RPM、超时及有限重试实际生效。
+- P02/P06：具体节点解析、provider-only/非法节点拒绝、用户原文件不变、端口占用不影响原服务、生成配置隔离和文件权限、内核校验失败脱敏。
+- P03/P05：两次延迟检测、候选检测预留、重复出口拒绝、失败恢复、冷却、普通保留等待、在途批次耗尽才切换和另一端口继续运行。
+- P04：真实 spawn worker 内使用锁定 JobSpy RequestsRotating 与 curl_cffi 请求本地 429/200，统计 3 次实际请求、1 次 429、成功 query 只尝试一次；压力比率、两次可打断退避、禁止保留压力出口、停用后剩余任务交给健康端口/全停用保留部分结果。
+- R04/R05/S06：并发抓取及评分停止、在途 0 分提交、stopping 互斥、失败计划及等待项接续；真实 owner 子进程清理、service 所有者被 SIGKILL 后管道 EOF 回收假内核及临时配置。
+
+真实控制 HTTP 与进程生命周期测试使用本地假内核，公网出口由假探测返回；没有使用真实 Mihomo 内核、节点或招聘网站。这些测试不代替真实代理连通性、安装包或 React 页面验收；执行命令和结果见 DEVELOPMENT-STATUS。
+
+### M6 后续调整验收要求（2026-10-24）
+
+对应 PIPELINE §7.1 与 CONTRACTS「M6 调整补充契约」，使用合成配置、假 controller/出口、可注入时钟和既有 fake scraper/LLM 验证：
+
+- 失败尝试归队，不能在同一批内连续用完重试预算；本端口在途耗尽后先处理压力退避/轮换，健康端口仍可工作。断言尝试上限、部分结果无丢失/重复提交、实际请求与 429 跨尝试累计，成功 query 不因已恢复 429 重跑。
+- Indeed-only 即使没有有效 Mihomo 路径也能执行，且内核零启动；混合任务的文件校验/内核启动/端口失败不阻止 Indeed 提交，LinkedIn 明确失败且无直连请求。
+- PUT 成功但 GET `now` 不符时不得派发抓取；恢复旧节点确认失败时停用端口。
+- 普通保留执行两次延迟复检；延迟失败、出口重复或冷却中均拒绝。IP 改变但检查合格可保留，原 IP 冷却、活动记录更新正确；压力出口仍禁止保留。
+- `failed_node_cooldown_seconds` 的默认、保存、非法值整笔拒绝、旧配置兼容、快照/Resume 生效；注入时钟断言 60 秒默认及自定义期限内跨端口跳过、到期重新可选，与出口 IP 冷却互不混淆。
+- 主出口检测失败或返回非法 IP 时才使用备用服务，均经同一 listener；双失败受控结束，停止后不发备用请求，无直连或无限重试。
+- Stop 在重试归队、暂避/退避等待和候选检测期间阻止新请求并完成资源清理；崩溃恢复、后台计划、显式 Quit 的既有语义回归。
+- Resume 立即移除上次代理统计；本次代理池启动失败或仅续跑评分时不重新出现旧值，已提交岗位、快照及任务累计尝试次数保留。
+
+上述合成边界的自动化入口为 `backend/tests/test_mihomo_followup.py`，既有进程清理和计划测试仍在 `test_mihomo.py`；实际执行及结果仅记 DEVELOPMENT-STATUS。真实内核和节点测试仍须用户明确提供测试条件并授权，不用私人配置代替合成验证。

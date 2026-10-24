@@ -1,6 +1,14 @@
 # 开发状态
 
-最新状态：2026-10-24 M8 后端与 Electron main 本机 MCP 的15个工具已完成并通过真实协议客户端联调；只交付 M8，M9 与 React 页面未实施。后端全量276项及最终相关99项、Node23项、相关Electron11个场景（分轮修正旧schema断言后）通过；未执行本轮安装包/签名验收，M6新参数留合并联调。
+最新状态：2026-10-24 M6 后端与 M8 本机 MCP 已汇合；本轮修正 Resume 代理统计、统一配置/预览文档并交付。M9 和对应 React 页面仍未实施。既有验证保留在各阶段记录，本轮检查与限制见下节。
+
+## M6 审阅修复及 M8 汇合交付（2026-10-24，Codex）
+
+用户授权修复审阅问题、核对文档、提交推送，并同步 main 与两个开发分支及本地工作区。开工两个工作区均干净；在 codex/dev fetch/merge origin/main 后合并 claude/dev-env 的三个 M6 提交（截至 f41ce2c）。业务代码自动合并；六处冲突均为工程文档/模块 README 的新增章节，保留双方内容和历史验证记录，统一顶部进度与接口边界。未直接修改另一工作区的业务代码。
+
+Resume 的原事务移除旧 stats.proxy，避免新一轮初始化失败或仅续跑评分时显示上一轮计数；配置快照、已提交岗位和任务累计尝试次数保留。新增两项合成回归覆盖这两条真实路径、Resume 后立即读取及运行结束后的统计。M8 preview_run、Run 摘要与15个工具保持原实现；文档明确完整非秘密代理配置属于后端快照，配置工具属于 M9，同时修正 M6 文档沿用 schema 5 的过时说明（汇合后 schema 6）。
+
+按用户不重复运行既有测试的要求，本轮仅执行新增回归：backend `uv run --locked pytest -q tests/test_mihomo_followup.py -k test_resume_clears_previous_proxy_stats`，**2 passed / 27 deselected / 0.80s**；沿用 macOS arm64 与锁定环境，uv 按合并后的 lockfile 补齐 M6 已声明的 PyYAML。`git diff --check` 与冲突标记检查通过。未重跑既有后端/Node/Electron 套件，没有访问真实代理、招聘网站或付费模型，也未做安装包验收；之前阶段的通过记录不视为本轮合并后的实测。远端 Backend、Frontend、Desktop E2E、自动合并及 main CI 以本次 PR/Actions 记录为准。
 
 ## M8 审阅修正与推送交付（2026-10-24，Codex）
 
@@ -55,6 +63,111 @@ MCP实际覆盖：15工具发现/调用；405岗位跨页收集再200/200/5写�
 初轮失败为迁移后的旧版本断言、旧库测试在迁移前调用含 origin 的新查询，以及一次迁移夹具编辑误缩进；已修正夹具，未给产品增加旧 schema 回退。新增验证覆盖迁移失败回滚、岗位/清单插入原子性、非法编辑/超大返回回滚、稀疏手动内容、身份冲突、抓取命中不覆盖、旧来源identity保留、手动/自动清理保护、分页批量及UI兼容、Schedule更新后新时刻触发与历史快照不变、轻量Run过滤和已清理NOT_FOUND。
 
 本节记录后端子交付；完整 Electron/MCP 链路和连接示例的结果在本轮 MCP 完整交付节记录，后端测试本身不算 MCP 完整验收。仅本地提交，不 push、提 PR 或合并 main。
+
+## M6 六项调整实施与真实验证（2026-10-24，Codex）
+
+### 范围与实现
+
+继续使用指定 `job-vaccum-gui-claude` / `claude/dev-env`，开工干净；`git fetch origin` 后 `git merge origin/main` 为 Already up to date。没有修改其他 worktree、MCP 或 React，没有依赖或 lockfile 变动。用户本轮明确授权开始实现、使用本地 Mihomo、少量真实招聘抓取，并授权自行查找内核/配置与选择最小测试条件；以下真实验证取代此前「暂不测试」限制，仅限本轮测试。
+
+- Mihomo LinkedIn 每次派发一次 JobSpy 尝试，可重试失败在本批在途耗尽后归队；健康端口等待在途批次返回工作，停用端口归还领取的批次。尝试预算按任务累计，部分记录/HTTP/429 在内存聚合，终态只提交一次；全端口停用时仍提交已尝试任务的可用部分结果和真实统计。Stop 不再发起归队尝试。
+- Indeed 在专用内核校验/启动前独立派发；Indeed-only 无需有效节点路径、零内核启动。Mihomo 校验不再在 preview/start/resume 的全局预检阻断 Indeed，相关错误在后台 LinkedIn 路径明确记录。
+- 控制客户端 PUT 后 GET 确认 `now`，恢复旧节点同样确认。普通保留增加两次延迟复检，允许合格的新 IP，并检查活动出口去重/冷却和更新记录；压力出口禁止保留。
+- `mihomo.failed_node_cooldown_seconds` 已进入 settings、校验、快照执行及 shared 类型，默认 60 秒、有限正数；跨端口共享失败节点截止时间，旧设置和旧快照缺字段按 60 执行，与出口 IP 的 300 秒冷却独立。M8/M9 可用原 `settings.get/save` 白名单接入，字段和批次新语义见 CONTRACTS「M6 调整补充契约」。
+- 出口检测先 ipify，失败/非法公网 IPv4 后才尝试 icanhazip；均使用同一 listener、有限超时、忽略环境代理，停止后不发备用请求。App 不改用户源配置、系统代理或现有实例。
+
+### 本轮执行的验证
+
+环境沿用下方初版记录：macOS arm64、Python 3.13.12、锁定依赖/JobSpy SHA，npm/uv 管理约定不变。后端命令在 `job-vaccum-app/backend`，桌面命令在 `job-vaccum-app/desktop`。
+
+| 命令/检查 | 实际结果 |
+| --- | --- |
+| `uv run --locked pytest -q tests/test_mihomo.py tests/test_mihomo_followup.py` | **68 passed / 2.82s**；新增 27 项，含跨端口重试、耗尽保留部分结果、真实次数统计、独立 Indeed、停止、旧快照、参数期限与出口备用服务边界 |
+| `uv run --locked pytest -q` | **333 passed / 78.89s**；包含既有恢复、计划、评分、owner SIGKILL 清理回归 |
+| `npm test` | 类型检查/生产构建通过，**22 Node tests passed / 23.51s** |
+| `npx --no-install playwright test --grep '@smoke\|M7'` | **9 passed / 11.8s**；后台窗口关闭、计划、Quit 及强制退出回归 |
+| `uv run --locked pyinstaller ../packaging/backend.spec --noconfirm --distpath ../dist/backend --workpath ../build/backend` | arm64 onedir 构建成功 |
+| `uv run --locked python tests/mihomo_service_smoke.py ../dist/backend/job-vaccum-service/job-vaccum-service` | PASS；冻结后端、真实 spawn owner、本地假控制接口回读、出口拒绝、零直连、tmp 清理与 EOF 退出 |
+| `git diff --check` | 通过 |
+
+### 真实内核、出口与网站结果
+
+只读使用 Clash Verge 自带的 `/Applications/Clash Verge.app/Contents/MacOS/verge-mihomo`（`-v`：Mihomo Meta v1.19.29 darwin arm64，go1.22.12）与 `$HOME/Library/Application Support/io.github.clash-verge-rev.clash-verge-rev/clash-verge.yaml` 中的 44 个具体独立节点。没有读取原项目 .env、模型 Key、私人岗位结果；未输出或提交节点名称、出口 IP、凭据、配置副本或抓取内容。两个 App 专用 listener 使用 17901–17902，controller 为 19099；源文件前后直接字节比较相同，没有修改现有 Clash Verge 实例。
+
+手动入口 `tests/manual_mihomo.py` 不被 pytest 收集，必须显式传内核与配置路径；通过 CLI 传入路径，不写入产品代码。两次执行的公共前缀如下：
+
+```sh
+uv run --locked python tests/manual_mihomo.py --kernel '/Applications/Clash Verge.app/Contents/MacOS/verge-mihomo' --nodes "$HOME/Library/Application Support/io.github.clash-verge-rev.clash-verge-rev/clash-verge.yaml"
+```
+
+1. 加 `--query 'software engineer' --location 'Chicago, IL' --results 3`：两个端口、每候选延迟门槛 1000ms、每次最多 5 候选，1 个端口通过，另 1 个停用；8 次候选失败。对可用端口只发出 **1 次 LinkedIn HTTP 请求，1 次 429、0 条结果**，JobSpy 平台诊断映射为 NETWORK_ERROR，未重试、未直连回退、没有调用 LLM。HTTP 429 统计仍准确，不能宣称真实抓取成功。
+2. 不传 query，改加 `--delay-threshold-ms 3000 --max-candidates 10`：仅代理探测，**两个端口均就绪、出口 IP 不同、随后成功换到新出口**；3 次成功选择/轮换、4 次候选失败、0 端口停用。不再次访问招聘网站。
+
+两轮均确认专用实例正常关闭、App 临时资源移除、源配置字节不变、listener/controller 端口可重新绑定。真实测试不保证所有 44 个节点可用，不等同于完整 .app/DMG 安装验收或真实进程组硬杀验收；异常退出和压力退避由上述合成/假内核测试覆盖。真实 Indeed/普通代理抓取、付费模型、React 页面均未测试或实现。真实 LinkedIn 成功抓取仍受此次 429 阻断；没有通过重复大量请求来追求成功。
+
+## M6 后续调整：仅文档记录（2026-10-24，Codex，历史）
+
+本轮用户仅要求把待修改内容写入文档。工作目录仍为 `job-vaccum-gui-claude` / `claude/dev-env`，开工干净；不修改另一 worktree、代码、依赖或 MCP。本次原项目源码路径可访问，前序对照仅只读检查 `src/proxy_pool.py`、`src/run-pipeline.py`、`src/job-retrieve.py`，没有读取私人节点配置；以下记录补充初版交付说明，不将初版测试视为原版行为完全对齐。
+
+待实现清单：
+
+- Mihomo 失败任务尝试归队，后续批次重试，保留有限预算、部分结果和实际请求统计；先在途耗尽，再按压力退避及轮换。
+- Indeed 独立于 Mihomo 校验/启动失败；Indeed-only 不要求内核或节点文件。
+- 节点切换后回读 `now` 确认；旧节点恢复失败则停用端口。
+- 普通保留补两次延迟复检；**不要求 IP 与旧值一致**，合格的新出口经过去重/冷却检查后可更新使用。压力出口仍不保留。
+- 新增非秘密参数 `mihomo.failed_node_cooldown_seconds`，默认 60 秒、有限正数；这是按失败节点暂避，与现有 `cooldown_seconds=300` 的出口 IP 冷却不同。目前代码/接口尚不支持新字段。
+- 增加固定备用出口检测服务 ipv4.icanhazip.com，主检测 ipify 失败时经同一 listener 尝试，不直连、不循环重试。
+
+保持专用实例、自动选节点、用户原配置不变、失败不转直连、部分端口可继续工作的设计；无需用户预设 App 专用代理规则。不恢复原版要求所有端口同时初始化成功的限制。实施细节及配置交接见 PIPELINE §7.1、CONTRACTS「M6 调整补充契约」（原目标契约），测试要求见 ACCEPTANCE 对应小节，IMPLEMENTATION-PLAN M6 已链接。
+
+本轮仅检查文档差异与 `git diff --check`，未运行应用或测试；未启动真实 Mihomo、未读取私人配置、未发送真实网络检测或招聘请求。用户已说明本机有内核和代理配置，但尚未提供路径和真实测试范围，且明确要求暂不测试。后续实现与测试不得标记为本轮完成。
+
+
+## M6 后端：高级参数与 Mihomo（2026-10-24，Codex）
+
+### 工作区与范围
+
+用户授权仅完成 M6 后台、必要桥接/类型、文档、模拟验证和本地提交，不做 React 页面或 MCP，不 push/PR/合并 main。指定工作区 `job-vaccum-gui-claude` 开工干净；发现当前为 `claude/dev-env`、`codex/dev` 在另一个工作区使用后，用户明确选择沿用指定目录的 `claude/dev-env`。`git fetch origin` 后 `git merge origin/main` 返回 Already up to date（8bec590）。未修改另一个 worktree、未调用其他 Agent、未读取原项目私人配置或复制另一 Session 未提交内容。
+
+按 README 顺序阅读产品/工程契约及状态，重点 PIPELINE §7；为交接额外核对 M8-M9-MCP 的现有配置白名单边界。Mihomo listener/controller 字段查阅官方文档，行为按本项目 PIPELINE 独立实现；未声称与不可访问的私人实现逐行兼容。
+
+### 实际交付
+
+- settings 新增 `run_mode`、`advanced_parameters`、`mihomo`；嵌套参数及平台对象支持省略保留、校验失败整笔不写。默认参数固定，高级直连无需 Mihomo；普通代理两平台同地址；Mihomo 只代理 LinkedIn，Indeed 直连。有效参数写入 pipeline/rescore 快照，历史及 Resume 不受后续设置影响。
+- 抓取目标、时间范围、每平台并发、整次尝试超时、重试次数/退避真实进入抓取；评分多任务派发和所有 LLM 入口共用并发/RPM，实际 connect/read timeout 和有限重试使用捕获参数。无新表、迁移、通用 schema 或结果缓存。
+- App 专用 Mihomo：读取用户具体节点 YAML、内核/文件/端口检查、`-t` 校验、独立随机密钥 controller、专用 select 组及 HTTP listeners；只监听 loopback，不改系统代理或用户文件，不导入订阅/provider-only。临时目录 0700、配置 0600；节点/控制秘密不进入 SQLite、协议及日志。
+- 候选打乱、检测中节点预留、两次 HTTPS 延迟检查、实际公网 IPv4 检测、活动出口去重、冷却；每端口完整批次在途耗尽后轮换，普通失败复检旧出口并短等，压力时两次有限退避/轮换且禁止保留旧出口。停用端口留下未领取任务给健康端口；全停用保留部分结果、未执行任务 failed/PROXY_ERROR，不静默直连。
+- 正常 Stop 保存已发出成功评分；任务/内核清理完成前保持活跃。内核的 owner 通过管道 EOF 回收自己创建的进程，覆盖 service 被 SIGKILL；Python 退出期限及 Electron 原有进程组退出仍有效，窗口关闭和计划队列语义保留。
+- shared/runs.ts、CONTRACTS、PIPELINE、DATA-MODEL、ACCEPTANCE 和两端 README 已同步；M9 使用原 settings.get/save 明确白名单及 runs.preview，不复制校验或读取秘密。仅新增 YAML 所需 PyYAML 6.0.3 与 lock 条目，既有依赖版本及 JobSpy 完整 SHA 未改变。
+
+### 实际验证
+
+环境：macOS 27.0.1（26A434）arm64；Python 3.13.12 / SQLite 3.54.0 / uv 0.13.5；Node 26.12.1 / npm 11.20.0 / Electron 44.9.0；PyInstaller 6.22.3 / PyYAML 6.0.3。后端命令在 `job-vaccum-app/backend`，桌面命令在 `job-vaccum-app/desktop` 执行。
+
+| 命令/检查 | 实际结果 |
+| --- | --- |
+| `git fetch origin`、`git merge origin/main` | 同步完成，Already up to date；没有合并本地 main 分支或远端交付 |
+| backend `uv add 'PyYAML>=6.0.3,<7'` | 声明/lock 同步；只新增 PyYAML 6.0.3，原有版本不变 |
+| backend `uv run --locked pytest -q` | **306 passed / 78.90s**（含 M6 41 项及既有 265 项） |
+| backend `uv run --locked pytest -q tests/test_mihomo.py` | 最终 **41 passed / 2.75s**；含假内核 helper 更新后的复验 |
+| desktop `npm test` | 类型检查及生产构建通过；**22 Node tests passed / 23.54s** |
+| desktop `npx --no-install playwright test --grep '@smoke\|M7'` | **9 passed / 24.5s**；真实 Electron/service、无窗口计划、隐藏图标、Quit/后台退出 |
+| backend `uv run --locked pyinstaller ../packaging/backend.spec --noconfirm --distpath ../dist/backend --workpath ../build/backend` | arm64 onedir 构建通过；既有可选 jinja2/Windows DLL 警告，不新增无关依赖 |
+| backend `uv run --locked python tests/mihomo_service_smoke.py ../dist/backend/job-vaccum-service/job-vaccum-service` | **PASS**：cwd=/、受限 PATH 的冻结后端；JobSpy/curl 离线导入、YAML、真实协议、spawn owner/假 controller、本地出口拒绝、零抓取尝试、无直连回退、tmp 清空、EOF 退出 |
+| `git diff --check` | 通过 |
+
+测试只用合成岗位/配置、FakeController、假公网 IPv4、可注入时钟、fake scraper/LLM、loopback HTTP 及本地假可执行内核。真实 spawn worker 经锁定 JobSpy RequestsRotating 和 curl_cffi 向本地服务发送 429/200，验证 3 次实际 HTTP、1 次 429、成功 query 仅一次尝试。冻结 smoke 的假 proxy 直接返回 502，不向公网转发，不执行 JobSpy 抓取。
+
+开发过程修正了 TIME_WAIT 被误判为端口占用（复用已关闭连接，仍拒绝活动 listener），以及慢 RPM 切换必须从最近实际起始时间重新计算间隔。首轮专项测试中的 loopback 测试权限和 schedule 测试时刻问题已修正，最终上述验证全通过。曾从仓库根误执行 pytest，未进入 Python 工程而报找不到 pytest；改在 backend 使用 uv run --locked，未安装全局依赖。
+
+### 未完成验证与交接
+
+- **真实 Mihomo 未验证**：未提供真实内核及授权测试节点；未运行用户现有代理、读取私人节点/凭据、访问招聘网站或付费模型。假控制/出口与假内核验证不代表真实代理连通性。
+- 本次冻结后端验证不是完整 `.app`/DMG 安装验收；未做新安装副本、第二台 Mac、签名/公证或公开发布。M6 React 参数页面尚未开发，既有 M5 引导/Skip、M7 计划页面等待办不由本次完成。
+- M8/M9 读取/修改交接见 CONTRACTS「M6 后端配置与执行」：`run_mode`、`advanced_parameters`、`proxy`、`mihomo` 均有字段定义；敏感内容保持私有。MCP 实现及最终工具白名单由另一 Session 负责，本次未猜测/合入对方代码。
+- 已有端口占用明确报错；不会扫描遗留 PID。极端进程组硬杀留下的 App tmp 在下次持锁启动清理。真实网络远端成功、本地未提交的中断窗口仍可能重发，不承诺远端 exactly-once。
+- 仅本地提交到用户指定的 `claude/dev-env`，未 push、创建 PR、修改远端保护或合并 main。
+
 
 ## M8/M9 规划与既有 Codex 提交的交付验证（2026-10-23，Codex）
 

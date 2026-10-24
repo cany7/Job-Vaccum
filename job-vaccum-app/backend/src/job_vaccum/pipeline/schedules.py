@@ -6,6 +6,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from job_vaccum import JOBSPY_COMMIT
+from job_vaccum.pipeline.advanced import effective
 from job_vaccum.pipeline.configuration import PARAMETERS
 from job_vaccum.service.protocol import CommandError
 from job_vaccum.storage.filters import fields, string, strings, integer, boolean, choice
@@ -228,7 +229,7 @@ class Schedules:
             # Configuration failures are actual failed attempts, not sleep misses.
             now, run_id = self.repo.clock(), str(uuid4())
             snapshot = {**self.repo.settings(), 'direction_ids': schedule['direction_ids'],
-                        'parameters': PARAMETERS, 'jobspy_commit': JOBSPY_COMMIT}
+                        'parameters': effective(self.repo.settings(), PARAMETERS), 'jobspy_commit': JOBSPY_COMMIT}
             self.db.execute("INSERT INTO runs(id,kind,status,created_at,started_at,finished_at,config_snapshot_json,trigger_json,error_json) VALUES (?,'pipeline','failed',?,?,?,?,?,?)",
                             (run_id, now, now, now, json.dumps(snapshot), json.dumps(trigger), json.dumps({'code': error.code, 'message': str(error), 'retryable': False})))
             self.runs.save_stats(run_id)
