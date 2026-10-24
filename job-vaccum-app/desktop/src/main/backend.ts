@@ -127,13 +127,17 @@ export class Backend extends EventEmitter {
     }
     const id = randomUUID();
     const request: Request = { type: "request", id, method, params };
+    const encoded = JSON.stringify(request) + "\n";
+    if (Buffer.byteLength(encoded) - 1 > MAX_LINE_BYTES) {
+      return Promise.resolve(failure("VALIDATION_ERROR", "Message exceeds the 1 MiB limit."));
+    }
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         resolve(failure("TIMEOUT", "The backend request timed out. Check the connection before trying again."));
       }, this.options.requestMs ?? (method === "app.diagnostics" ? 30_000 : 10_000));
       this.pending.set(id, { timer, finish: (result) => resolve(result as ApiResult<T>) });
-      this.child.stdin.write(JSON.stringify(request) + "\n", "utf8", (error) => {
+      this.child.stdin.write(encoded, "utf8", (error) => {
         if (error) this.fail("Could not send a request to the backend.");
       });
     });

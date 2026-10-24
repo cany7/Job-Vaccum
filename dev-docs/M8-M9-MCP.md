@@ -192,3 +192,7 @@ M9 主要包装 directions.save、queries.save、settings.get/save，并同步�
 3. 验证配置部分更新不覆盖省略字段，非法配置不落库，在途与历史运行快照不被修改，结果不含凭据；补充契约及实际交接记录。
 
 各阶段实施后按 [ACCEPTANCE](ACCEPTANCE.md) 的既有相关项与本节新增边界验证，记录本地、真实 MCP 客户端和安装包分别验证了什么。开发态通过不代表安装包或公开插件发布通过。
+
+## 9. M8 实施细化
+
+业务命令、来源迁移、空值/重复身份语义、错误和事件见 [CONTRACTS 的 M8 节](CONTRACTS.md) 及 [DATA-MODEL](DATA-MODEL.md)。本机服务采用无会话 Streamable HTTP POST；连接配置存当前 App 数据目录的 `mcp.json`（0600，port/token），首次分配端口后复用，Host/Origin 精确匹配该端口的 loopback authority。详细连接步骤和可运行 SDK 客户端见 [desktop README](../job-vaccum-app/desktop/README.md#m8-local-mcp)。本轮实施只包含 M8，M9 仍独立待授权；M6 执行参数按合并后的正式契约联调，不增加占位参数。

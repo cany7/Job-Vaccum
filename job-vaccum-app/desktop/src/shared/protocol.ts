@@ -19,7 +19,9 @@ export const businessMethods = {
   'cleanup:preview': 'cleanup.preview', 'cleanup:execute': 'cleanup.execute',
   'dev:import-synthetic': 'dev.import_synthetic',
 } as const;
-export type Method = "app.status" | "app.ping" | "app.diagnostics" | "export.csv" | "internal.credentials" | "internal.schedules_check" | "schedules.trigger" | "schedules.record_missed" | typeof businessMethods[keyof typeof businessMethods];
+export type M8Method = 'jobs.query' | 'applications.create_job' | 'applications.update_job' | 'directions.list'
+  | 'schedules.get' | 'schedules.update' | 'schedules.preview' | 'runs.summaries' | 'runs.summary';
+export type Method = M8Method | "app.status" | "app.ping" | "app.diagnostics" | "export.csv" | "internal.credentials" | "internal.schedules_check" | "schedules.trigger" | "schedules.record_missed" | typeof businessMethods[keyof typeof businessMethods];
 export interface Request {
   type: "request";
   id: string;

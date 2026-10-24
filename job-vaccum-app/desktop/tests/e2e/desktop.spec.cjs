@@ -73,7 +73,7 @@ test('shell, About with real backend, close/reopen, single instance and Quit', {
     await nav(page, 'Settings').click();
     await page.getByRole('button', { name: 'About' }).click();
     await expect(page.getByText('Ready · protocol v1')).toBeVisible();
-    await expect(page.getByText('Schema 5 · WAL', { exact: true })).toBeVisible();
+    await expect(page.getByText('Schema 6 · WAL', { exact: true })).toBeVisible();
     await expect(page.getByText(/^Version \d+\.\d+\.\d+ · macOS arm64$/)).toBeVisible();
     await expect(page.getByText(path.basename(dataDir), { exact: false })).toBeVisible();
     // Ping is a development-build diagnostic only.
@@ -83,7 +83,7 @@ test('shell, About with real backend, close/reopen, single instance and Quit', {
       await expect(page.getByText(/^Replied in \d+ ms/)).toBeVisible();
     }
     await page.getByRole('button', { name: 'Run diagnostics' }).click();
-    await expect(page.getByText('Read/write passed · schema 5 · WAL')).toBeVisible();
+    await expect(page.getByText('Read/write passed · schema 6 · WAL')).toBeVisible();
     await expect(page.getByText(packaged ? 'Bundled' : 'Development environment', { exact: true })).toBeVisible();
 
     expect(await page.evaluate(() => typeof window.require)).toBe('undefined');
@@ -254,7 +254,7 @@ test('640 wide window, keyboard focus and reduced motion', async () => {
     }
     await page.getByRole('button', { name: 'About' }).click();
     await page.getByRole('button', { name: 'Run diagnostics' }).click();
-    await expect(page.getByText('Read/write passed · schema 5 · WAL')).toBeVisible();
+    await expect(page.getByText('Read/write passed · schema 6 · WAL')).toBeVisible();
     expect(await noPageOverflow(page)).toBe(true);
     // Long values wrap inside the card instead of widening the page.
     expect(await page.locator('.card').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);

@@ -189,3 +189,114 @@ terminates that group's owned scrape children. There is no service auto-restart.
 This step does not add Runs, batch filter controls, manual search settings or
 scoring UI to the renderer. Scoring execution remains M3; auto_score_enabled=false
 allows retrieval to finish without a model. Tests use synthetic data only.
+
+## M8 local MCP
+
+Electron main starts an authenticated, stateless Streamable HTTP endpoint at
+`http://127.0.0.1:<port>/mcp`. It uses the official TypeScript MCP SDK and the
+same credential-aware business caller as IPC, then the existing Python service
+and SQLite. Closing the window leaves MCP available; explicit Quit closes the
+HTTP listener/connections and stops the owned backend. No separate daemon runs.
+
+On first launch, main creates `mcp.json` in the current App data directory with
+`{port,token}` and mode 0600. It generates a random 256-bit token and saves the
+OS-assigned port for subsequent launches. To change the port/token, Quit first,
+edit this local file, then reopen. Port 0 requests a new assigned port; conflicts
+or invalid configuration show an error without an automatic fallback. Never
+commit the file or paste its token into logs. This credential is separate from
+model/proxy credentials and is not included in tool results or snapshots.
+
+Native clients send `Authorization: Bearer <token>`. Host must exactly match
+`127.0.0.1:<port>` or `localhost:<port>`. Origin may be absent; if supplied it must
+be exactly `http://127.0.0.1:<port>` or `http://localhost:<port>`. Other Hosts or
+Origins receive 403; missing/wrong tokens receive 401. The listener binds only
+IPv4 loopback. Authenticated GET/DELETE return 405 (no SSE session is needed).
+
+The 15 tools are:
+
+- `list_jobs`, `list_shortlist`, `get_job`
+- `add_to_shortlist`, `create_shortlist_job`, `update_shortlist_job`, `set_shortlist_status`
+- `list_searches`, `list_schedules`, `get_schedule`, `update_schedule`, `preview_run`
+- `list_runs`, `get_run`, `get_app_status`
+
+Lists use flat FilterSpec parameters; scope is fixed by the tool. Summary pages
+have 50 rows by default/maximum; `view:"ids"` defaults/maxes at 200. Returned
+`page`, `page_size`, `total`, `has_more` describe one page. Reasons and notes are
+complete; JD, links and other detail fields are available only through get_job.
+Run summaries default/max at 50 and include both pipeline/rescore unless filtered.
+Tools return one JSON text payload, without a duplicate structuredContent copy.
+There is no server token budgeter, text truncation or automatic pagination.
+
+For bulk work, first collect **every page of IDs**, then write batches of at most
+200 IDs. In particular, do not interleave writes with pagination using
+`in_applications:false`: writes shrink that result set. A failed later batch
+leaves earlier committed batches intact. Writes are not automatically replayed.
+
+### Connect a protocol client
+
+Start the App, then run this from `job-vaccum-app/desktop` for development data:
+
+```sh
+node scripts/mcp-client.mjs "$(git rev-parse --show-toplevel)/tmp/job-vaccum-app/desktop"
+```
+
+For an installed App, pass its actual absolute userData path instead. The script
+uses the official SDK client, initializes MCP, lists the tools and reads one ID
+page. It reads the token locally and does not print it. It does not mutate data.
+
+### Codex and Claude examples
+
+These are opt-in connection commands, not actions performed by the application.
+From the desktop directory, load the endpoint and token into the current shell:
+
+```sh
+export JV_MCP_CONFIG="$(git rev-parse --show-toplevel)/tmp/job-vaccum-app/desktop/mcp.json"
+export JV_MCP_URL="$(node -e 'const fs=require("node:fs");const c=JSON.parse(fs.readFileSync(process.env.JV_MCP_CONFIG,"utf8"));process.stdout.write(`http://127.0.0.1:${c.port}/mcp`)')"
+export JV_MCP_TOKEN="$(node -e 'const fs=require("node:fs");process.stdout.write(JSON.parse(fs.readFileSync(process.env.JV_MCP_CONFIG,"utf8")).token)')"
+```
+
+Change JV_MCP_CONFIG to the installed App's config when appropriate. Start the
+client from an environment that contains JV_MCP_TOKEN; a desktop application
+already running from Finder does not inherit a later terminal export.
+
+Codex supports Streamable HTTP URLs and a bearer-token environment variable:
+
+```sh
+codex mcp add job-vaccum --url "$JV_MCP_URL" --bearer-token-env-var JV_MCP_TOKEN
+codex
+```
+
+The equivalent config is `[mcp_servers.job-vaccum]`, `url` set to the printed
+endpoint (not the token), and `bearer_token_env_var = "JV_MCP_TOKEN"`.
+See [official Codex MCP documentation](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
+
+Claude Code supports an HTTP transport and environment references in headers:
+
+```sh
+claude mcp add --scope user --transport http job-vaccum "$JV_MCP_URL" \
+  --header 'Authorization: Bearer ${JV_MCP_TOKEN}'
+claude
+```
+
+The single quotes intentionally preserve the environment reference rather than
+writing the token into configuration. See [Claude Code MCP documentation](https://code.claude.com/docs/en/mcp).
+The endpoint is local to the computer running the App; these examples require a
+local client, not a cloud-hosted connector. No user Skills need to change.
+
+### Integration checks
+
+```sh
+npm run build
+npx --no-install playwright test tests/e2e/mcp.spec.cjs
+```
+
+This uses the real SDK Client → production Electron main MCP/IPC → real Python
+CLI/service → SQLite. Test-only `tests/fixtures/mcp-main.cjs` injects
+`backend/tests/mcp_peer.py`, which substitutes existing FakeScraper/FakeLlm for
+network I/O; tool responses are not mocked. It covers all 15 tools, cross-page
+405-ID batching, filter/sort totals, full long text, manual jobs, partial schedule
+updates, live/completed runs, rescore, event forwarding, no-window writes,
+restart, cleanup, Quit, token/Host/Origin rejection and backend loss. The test
+fixture cannot be selected by renderer or MCP and is outside packaged files.
+Actual commands/results and outstanding package/M6 validation live in
+[DEVELOPMENT-STATUS](../../dev-docs/DEVELOPMENT-STATUS.md).

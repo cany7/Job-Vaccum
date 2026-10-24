@@ -77,12 +77,16 @@ class Service:
                     "cleanup": {"status": "idle"}, "configuration_complete": self.configuration_complete(),
                     "storage": {"schema_version": SCHEMA_VERSION, "journal_mode": "wal"}}
         commands = {
+            "schedules.get": self.schedules.get, "schedules.update": self.schedules.update,
+            "schedules.preview": self.schedules.preview,
             "schedules.list": self.schedules.list, "schedules.save": self.schedules.save,
             "schedules.delete": self.schedules.delete, "schedules.trigger": self.schedules.register,
             "schedules.record_missed": lambda p: self.schedules.register(p, missed=True),
             "internal.schedules_check": self.schedules.check,
             "firings.cancel": self.schedules.change_firing,
             "firings.delete": lambda p: self.schedules.change_firing(p, delete=True),
+            "jobs.query": self.repo.query_jobs,
+            "directions.list": self.repo.list_directions,
             "jobs.list": self.repo.list_jobs, "jobs.detail": self.repo.detail,
             "jobs.score": self.runs.score,
             "settings.save": lambda p: self.save_settings(p),
@@ -91,11 +95,15 @@ class Service:
             "drafts.apply": lambda p: self.change_draft('apply', p),
             "drafts.generate": self.generate_draft,
             "runs.preview": self.runs.preview, "runs.start": self.schedules.manual_start,
+            "runs.summaries": self.runs.summaries,
+            "runs.summary": lambda p: self.runs.summaries(p, single=True),
             "runs.list": self.runs.list, "runs.detail": self.runs.detail,
             "runs.stop": self.runs.stop, "runs.resume": self.runs.resume,
             "directions.save": self.repo.direction_save, "directions.delete": self.repo.direction_delete,
             "directions.reorder": self.repo.direction_reorder,
             "queries.save": self.repo.query_save, "queries.delete": self.repo.query_delete,
+            "applications.create_job": lambda p: self.repo.create_shortlist_job(p, response_id=request_id),
+            "applications.update_job": lambda p: self.repo.update_shortlist_job(p, response_id=request_id),
             "applications.add": self.repo.add,
             "applications.add_many": lambda p: self.repo.add(p, many=True),
             "applications.update": lambda p: self.repo.update(p, response_id=request_id), "applications.set_status": self.repo.set_status,
@@ -333,7 +341,7 @@ def serve(root: Path, source: BinaryIO, destination: BinaryIO, *, clock=now_ms, 
                     service.schedules.changed = True
                 if succeeded and method == "cleanup.execute":
                     event("cleanup.completed", result)
-                if succeeded and (method.startswith(("applications.", "directions.", "queries."))
+                if succeeded and ((method != "directions.list" and method.startswith(("applications.", "directions.", "queries.")))
                                   or method in {"dev.import_synthetic", "cleanup.execute", "drafts.apply"}):
                     event("jobs.changed", {})
                 if succeeded and method in {"runs.start", "runs.resume", "runs.stop", "jobs.score"}:

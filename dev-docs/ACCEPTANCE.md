@@ -223,3 +223,10 @@ M4 后端交付不等同于 R01/R16 的计划部分或完整 M4 renderer 交付�
 - 真实协议的接受响应先于 drafts.generated，事件不携带 Key/简历正文；客户端重新读取持久结果。格式校验不等于事实校验，身份/资格不推断由集中 prompt 约束并留用户审阅。
 
 四协议 HTTP、全局请求间隔和网络错误分类继续由 test_llm 覆盖。本次不包含 Electron 桥接、renderer 引导、Skip 流程、视觉检查、真实模型、安装包或完整 M5 出口验收；实际命令与结果只记 DEVELOPMENT-STATUS。
+
+## M8 后端与真实 MCP 验证入口
+
+- `backend/tests/test_m8.py`：schema 6 原地迁移/失败回滚；手动岗位与清单原子创建、内容/管理部分编辑与回滚、直链身份和精确历史内容边界；清理保护与重新连接；固定摘要/ID投影、200-ID批量、原 UI 200条契约；Schedule部分更新/预览与轻量Run查询。
+- `desktop/tests/e2e/mcp.spec.cjs`：官方 SDK MCP 客户端经过真实 HTTP、Electron main 共用业务入口、Python CLI/service 和 SQLite，全部15个tool；405条跨页收集再写入、Search/分数/日期/状态筛选、50/200上限、完整理由/备注/JD；实际 fake scraper/LLM 的 pipeline/rescore 进度、既有事件；无窗口读写、重启持久、清理保护、Quit断连、token/Host/Origin拒绝、后端退出。
+- MCP fixtures 只替换网络I/O，不替换工具响应；没有生产测试开关。SDK 客户端示例在 `desktop/scripts/mcp-client.mjs`，Codex/Claude配置示例在 desktop README。
+- 以上开发态入口不等于安装包、签名、公证或实际 Codex/Claude 模型调用验收。M6 新执行参数与 MCP preview 的合并联调、M9 配置工具另行交付，实际结果只写 DEVELOPMENT-STATUS。

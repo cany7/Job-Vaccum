@@ -33,6 +33,10 @@ class Repository:
         from job_vaccum.pipeline.configuration import save
         return save(self, params)
 
+    def list_directions(self, params):
+        fields(params, set())
+        return {'items': self.directions()}
+
     def directions(self):
         result = list(row_dict(self.db.execute('SELECT * FROM directions ORDER BY sort_order,id')))
         for direction in result:
@@ -139,7 +143,7 @@ class Repository:
         result['in_applications'] = row['application_status'] is not None
         result['application'] = ({'status': row['application_status'], **{key: row[key] for key in ('notes', 'added_at', 'updated_at')}} if result['in_applications'] else None)
         if detail:
-            result.update(description=row['description'], queries=json.loads(row['queries_json']),
+            result.update(origin=row['origin'], description=row['description'], queries=json.loads(row['queries_json']),
                           links={'job_url': row['job_url'], 'job_url_direct': row['job_url_direct']},
                           score_model=row['score_model'], last_score_error=row['last_score_error'])
         return result
@@ -154,6 +158,103 @@ class Repository:
             cursor = self.db.execute(f'SELECT {SUMMARY_SELECT} {JOIN} WHERE {where} ORDER BY {order} LIMIT ? OFFSET ?', [*values, page_size, (page - 1) * page_size])
             items = [self.job_object(row) for row in row_dict(cursor)]
         return {'items': items, 'total': total}
+
+    def query_jobs(self, params):
+        # MCP projection shares predicates with UI/export, but never selects JD or
+        # associated arrays. ID mode only loads the ID and the matching count.
+        params = dict(params)
+        view = choice(params.pop('view', 'summary'), 'view', ('summary', 'ids'))
+        limit = 200 if view == 'ids' else 50
+        params['page_size'] = integer(params.get('page_size', limit), 'page_size', 1, limit)
+        validate_run_ids(self.db, params)
+        where, values, order, page, size = build_filter(params, paged=True)
+        keys = ('id', 'title', 'company', 'location', 'job_type', 'score', 'score_reason',
+                'score_state', 'scored_at', 'first_seen_at', 'date_posted')
+        projection = 'j.id' if view == 'ids' else ','.join('j.' + k for k in keys) + ',a.job_id IS NOT NULL AS in_applications'
+        if view == 'summary' and params.get('scope') == 'applications':
+            projection += ',a.status,a.notes,a.added_at,a.updated_at'
+        with self.db:
+            self.db.execute('BEGIN')
+            total = self.db.execute(f'SELECT count(*) {JOIN} WHERE {where}', values).fetchone()[0]
+            cursor = self.db.execute(f'SELECT {projection} {JOIN} WHERE {where} ORDER BY {order} LIMIT ? OFFSET ?',
+                                     [*values, size, (page - 1) * size])
+            if view == 'ids':
+                items = [r[0] for r in cursor]
+            else:
+                items = list(row_dict(cursor))
+                for item in items:
+                    item['in_applications'] = bool(item['in_applications'])
+        return {'ids' if view == 'ids' else 'items': items, 'total': total, 'page': page,
+                'page_size': size, 'has_more': (page - 1) * size + len(items) < total}
+
+    def create_shortlist_job(self, params, *, response_id="x" * 128):
+        from job_vaccum.storage.manual import validate_content, CONTENT_FIELDS, identity_conflict
+        from job_vaccum.pipeline.records import text_key, direct_url, description_key
+        from job_vaccum.pipeline.ingest import match
+        fields(params, CONTENT_FIELDS | {'status', 'notes'}, {'title'})
+        content = validate_content(params)
+        status = choice(params.get('status', 'new'), 'status', STATUSES)
+        notes = string(params.get('notes', ''), 'notes', empty=True)
+        identifier, now = str(uuid4()), self.clock()
+        with self.db:
+            self.db.execute('BEGIN IMMEDIATE')
+            identity_conflict(self.db, content.get('job_url_direct'))
+            # Empty JD cannot identify an entity. Otherwise use the same historical
+            # company/content and external-link boundaries as ingestion.
+            if description_key(content.get('description')):
+                owner, _ = match(self.db, None, content)
+                if owner:
+                    raise CommandError('A matching job already exists. Add it to Shortlist using its ID.')
+            columns = list(CONTENT_FIELDS)
+            self.db.execute(f"INSERT INTO jobs (id,{','.join(columns)},origin,first_seen_at,company_key,sources_json,queries_json) "
+                            f"VALUES ({','.join('?' for _ in range(len(columns)+6))})",
+                            [identifier, *(content.get(k, '' if k == 'description' else None) for k in columns),
+                             'manual', now, text_key(content.get('company')), '[]', '[]'])
+            if url := direct_url(content.get('job_url_direct')):
+                self.db.execute("INSERT INTO job_identities VALUES ('direct_url',?,?)", (url, identifier))
+            self.db.execute('INSERT INTO applications VALUES (?,?,?,?,?)', (identifier, status, notes, now, now))
+            result = self.application(identifier)
+            check_result_size(result, response_id)
+        return result
+
+    def update_shortlist_job(self, params, *, response_id="x" * 128):
+        from job_vaccum.storage.manual import validate_content, CONTENT_FIELDS, identity_conflict
+        from job_vaccum.pipeline.records import text_key, direct_url
+        fields(params, CONTENT_FIELDS | {'job_id', 'status', 'notes'}, {'job_id'})
+        identifier = string(params['job_id'], 'job_id')
+        if len(params) == 1:
+            raise CommandError('Provide at least one field to update.')
+        content = validate_content(params)
+        if 'status' in params:
+            choice(params['status'], 'status', STATUSES)
+        if 'notes' in params:
+            string(params['notes'], 'notes', empty=True)
+        with self.db:
+            self.db.execute('BEGIN IMMEDIATE')
+            if self.application(identifier) is None:
+                raise CommandError('Application not found.', 'NOT_FOUND')
+            row = next(row_dict(self.db.execute('SELECT origin,job_url_direct,sources_json FROM jobs WHERE id=?', (identifier,))))
+            if content and row['origin'] != 'manual':
+                raise CommandError('Only manual jobs allow content edits.')
+            if 'job_url_direct' in content:
+                identity_conflict(self.db, content['job_url_direct'], identifier)
+                old, new = direct_url(row['job_url_direct']), direct_url(content['job_url_direct'])
+                source_urls = {direct_url(s.get('direct_url')) for s in json.loads(row['sources_json'])}
+                if old and old != new and old not in source_urls:
+                    self.db.execute("DELETE FROM job_identities WHERE kind='direct_url' AND value=? AND job_id=?", (old, identifier))
+                if new:
+                    self.db.execute("INSERT OR IGNORE INTO job_identities VALUES ('direct_url',?,?)", (new, identifier))
+            if 'company' in content:
+                content['company_key'] = text_key(content['company'])
+            if content:
+                self.db.execute('UPDATE jobs SET ' + ','.join(f'{k}=?' for k in content) + ' WHERE id=?', [*content.values(), identifier])
+            management = {k: params[k] for k in ('status', 'notes') if k in params}
+            management['updated_at'] = self.clock()
+            self.db.execute('UPDATE applications SET ' + ','.join(f'{k}=?' for k in management) + ' WHERE job_id=?',
+                            [*management.values(), identifier])
+            result = self.application(identifier)
+            check_result_size(result, response_id)
+        return result
 
     def detail(self, params):
         fields(params, {'job_id'}, {'job_id'})

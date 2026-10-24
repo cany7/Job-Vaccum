@@ -1,6 +1,60 @@
 # 开发状态
 
-最新状态：2026-10-23 已补充 M8/M9 MCP 开发设计，尚未实现这两个阶段。本次对 codex/dev 既有 M4、M7 后端/main、M5 Python 草稿生成提交统一验证：**265 项后端、22 项 Node、9 项 Electron 测试通过**，类型检查与构建通过。M5 Electron generate 桥接与 renderer、M7 计划配置界面、M6、完整引导/Skip、打包和签名仍需各自后续交付。
+最新状态：2026-10-24 M8 后端与 Electron main 本机 MCP 的15个工具已完成并通过真实协议客户端联调；只交付 M8，M9 与 React 页面未实施。后端全量276项及最终相关99项、Node23项、相关Electron11个场景（分轮修正旧schema断言后）通过；未执行本轮安装包/签名验收，M6新参数留合并联调。
+
+## M8 审阅修正与推送交付（2026-10-24，Codex）
+
+用户授权审阅 M8 后推送；M6 分支与 M9 不在本轮范围。审阅发现 MCP 的日期筛选输入缺少单位和边界说明，Agent 可能将 Unix 秒数当作毫秒传入而获得错误筛选结果。为 jobs、Shortlist、runs 的日期参数补充 UTC Unix 毫秒或 YYYY-MM-DD 格式，以及下界包含、上界不包含的工具 schema 描述；不改变校验、查询语义或分页规则。
+
+沿用上节合成数据与 fake I/O 验证环境。审阅时相关后端测试（test_m8、test_pipeline、test_business_protocol、test_schedules）**99 passed / 1.20s**，desktop `npm test` 构建与 **23 Node tests passed / 23.64s**，MCP E2E **2 passed / 3.7s**。描述修正后 `npm run build` 通过，`npx --no-install playwright test tests/e2e/mcp.spec.cjs` **2 passed / 3.9s**；另经官方 SDK 实际读取 tools/list，确认三个列表工具的全部14个日期筛选字段均带格式/单位与区间边界。`git diff --check` 通过。
+
+推送前 fetch/merge origin/main；已确认 main 强制要求 Backend、Frontend、Desktop E2E 且禁止管理员绕过。按仓库流程创建 PR 并开启自动合并；远端检查、合并及 main CI 的最终结果以对应 GitHub 交付记录为准。未新增测试框架、改动其他 worktree 或执行安装包验收。此前“仅本地提交”描述保留为当时记录。
+
+## M8 Electron MCP 完整交付（2026-10-24，Codex）
+
+在同轮后端提交 b8d3691 上完成 main 共用调用入口、MCP 服务与真实链路验证。沿用当前 codex/dev；仅本地提交，不 push、创建 PR、合并 main 或修改另一 worktree。未新增 React 页面、用户 Skills、Sheets、投递动作、Run 启停工具、删除工具或 M9 配置工具。
+
+- **15个工具**：list_jobs、list_shortlist、get_job、add_to_shortlist、create_shortlist_job、update_shortlist_job、set_shortlist_status、list_searches、list_schedules、get_schedule、update_schedule、preview_run、list_runs、get_run、get_app_status。工具输入白名单、只读/写入注解、固定结果投影；只返回一份JSON text，完整保留理由/备注/JD，无tokenizer/预算器/缩页/截短/分段/重读。
+- **真实进程接入**：main 的 business-call.ts 复用原凭据注入与 backend.request，IPC保留sender校验；MCP只映射列出的业务命令。Python继续唯一写库，jobs.changed/schedules.updated继续送到已打开窗口。关窗后HTTP/业务服务继续，显式Quit关闭listener和连接再按原期限结束Python。超大输入在main发送前按既有1MiB协议限制拒绝，连接保持可用。
+- **本机连接**：官方SDK 1.32.2、zod 4.6.7按精确版本/lockfile加入；无会话Streamable HTTP POST /mcp。仅127.0.0.1绑定，token与完整Host/Origin校验。数据目录mcp.json（0600）保存端口与随机token；首次分配后复用，配置错误或端口冲突明确报错。token不进入工具结果、日志、SQLite、快照或Git。
+- **文档/客户端**：CONTRACTS、DATA-MODEL、M8-M9-MCP、ACCEPTANCE及模块README同步。desktop README提供Codex/Claude连接命令和分页批量流程；scripts/mcp-client.mjs是可运行的只读官方SDK客户端，已在Electron测试实例实际执行。仅查阅官方文档和本机CLI帮助，未运行客户端配置写入命令。
+
+验证环境：macOS27.0.1 arm64、Node26.12.1、npm11.20.0、Electron44.9.0；Python/SQLite见后端记录。所有业务验证只用合成数据、既有FakeScraper/FakeLlm和临时SQLite。MCP测试主入口注入测试peer替代网络I/O，生产MCP/main/IPC/CLI/service/SQL均真实执行，未模拟工具响应，也未增加产品测试开关。
+
+| 命令 / 检查 | 实际结果 |
+| --- | --- |
+| desktop `npm test` | typecheck/生产构建通过；**23 Node tests passed / 23.58s** |
+| desktop `npx --no-install playwright test tests/e2e/mcp.spec.cjs` | **2 passed / 4.6s**；后续加入超大输入、可运行客户端示例和计划搜索部分更新后，仍在扩大测试中全部通过 |
+| desktop `npx --no-install playwright test --grep '@smoke\|M7\|M8'` | 最终该轮 **10 passed / 1 failed，约1.3m**；失败只为旧About诊断断言schema5，实际schema6 |
+| desktop `npx --no-install playwright test tests/e2e/desktop.spec.cjs --grep 'shell, About with real backend'` | 更新两处About/schema断言后 **1 passed / 2.0s**；上述11个场景最终均通过 |
+| backend最终相关测试 | **99 passed / 1.59s**；此前全量 **276 passed / 75.84s**，详见后端节 |
+| `node --check scripts/mcp-client.mjs`、`git diff --check` | 通过；示例脚本另已在真实Electron联调中运行 |
+
+MCP实际覆盖：15工具发现/调用；405岗位跨页收集再200/200/5写入；Search/分数/日期/状态筛选、稳定排序/总数/分页、50/200限制、重复ID与失效ID；完整长理由和JD、备注保留、手动标题创建/原子编辑、抓取正文拒改、清理保护、重启持久；Schedule单字段保留、非法时间/时区/搜索拒绝、更新搜索后实际fake任务数变化、预览无执行；fake pipeline和rescore运行中/成功状态与计数、全部kind/过滤/已清理NOT_FOUND；事件到窗口、无renderer写入、Quit后连接关闭；token/Host/Origin边界、未知tool拒绝和后端SIGKILL后的WORKER_EXITED，无token回显。
+
+中途修正记录：Node原background测试需适配registerBusinessIpc的新具名返回；Node fetch忽略自定义Host，认证用例改为原生http发送真实Host；桌面两处旧schema5断言改6。依赖安装报告3项audit告警；本次新增SDK路径复用的fast-uri锁定修正版3.1.9后剩2项既有Electron/markdown-it告警，未顺带升级既定框架版本。另有工作目录误传导致npm/pytest找不到声明/文件、环境查询把sqlite版本字符串当函数的命令错误，均修正后重跑，没有全局安装依赖。
+
+未完成/待联调：M6尚未合入本工作区，本次未实现Mihomo、代理调度或高级参数执行；合并后需按正式契约核对preview的执行参数及共用凭据入口，不增加占位字段。M9本轮明确不做。未运行完整Electron视觉套件、安装包、签名/公证或实际Codex/Claude模型驱动工作流；开发态官方SDK协议客户端通过不代替这些验收。用户客户端配置和Skills未修改。
+
+## M8 后端业务补充（2026-10-24，Codex）
+
+本轮明确只交付 M8，不开发 React 页面或 M9。开工读取 AGENTS、README 及相关工程契约；当前 codex/dev 工作区干净，git fetch origin 后 git merge origin/main 返回 Already up to date。未修改另一 worktree、未读取其未提交实现，未修改用户 Skills 或使用私人凭据。
+
+- schema 6 原地新增 jobs.origin；已有岗位标 scraped。手动岗位与 Shortlist 原子创建、内容/状态/备注原子部分编辑，沿用 company_key/直链规范化、身份唯一约束、完整响应大小检查及清理保护。重复身份/非空精确历史内容拒绝创建，抓取正文不可覆盖；抓取命中手动实体保留 origin/正文/旧分。
+- jobs.query 复用 FilterSpec/稳定排序，SQL 直接投影摘要或 ID；summary 默认/最多50，ids 默认/最多200，完整理由/备注；原 jobs.list 的200条契约不变。directions.list 不公开 settings 内部配置。
+- schedules.get/update/preview 复用 M7 当前值合并、校验/保存、触发及凭据规则；runs.summaries/summary 只读状态/统计，不加载 tasks/jobs/完整配置。原 UI methods 保持兼容。更新 CONTRACTS、DATA-MODEL 和 backend README。
+
+验证环境：macOS 27.0.1 arm64，uv 0.13.5、Python 3.13.12、SQLite 3.54.0；使用临时库、合成数据和既有 fake scraper/fake LLM，无真实网络调用。
+
+| 命令 / 检查 | 实际结果 |
+| --- | --- |
+| backend `uv run --locked pytest -q` | **276 passed / 75.84s** |
+| backend `uv run --locked pytest -q tests/test_m8.py tests/test_pipeline.py tests/test_business_protocol.py tests/test_schedules.py` | 最终归一化空JD边界调整及新增两项用例后 **99 passed / 1.59s**；M8文件共13项 |
+| `git diff --check` | 通过 |
+
+初轮失败为迁移后的旧版本断言、旧库测试在迁移前调用含 origin 的新查询，以及一次迁移夹具编辑误缩进；已修正夹具，未给产品增加旧 schema 回退。新增验证覆盖迁移失败回滚、岗位/清单插入原子性、非法编辑/超大返回回滚、稀疏手动内容、身份冲突、抓取命中不覆盖、旧来源identity保留、手动/自动清理保护、分页批量及UI兼容、Schedule更新后新时刻触发与历史快照不变、轻量Run过滤和已清理NOT_FOUND。
+
+本节记录后端子交付；完整 Electron/MCP 链路和连接示例的结果在本轮 MCP 完整交付节记录，后端测试本身不算 MCP 完整验收。仅本地提交，不 push、提 PR 或合并 main。
 
 ## M8/M9 规划与既有 Codex 提交的交付验证（2026-10-23，Codex）
 
