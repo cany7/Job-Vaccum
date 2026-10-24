@@ -41,11 +41,11 @@
 - 每个写代码的 Agent 使用独立 worktree 和分支，不直接修改 main。
 - 开工前明确分工和接口，避免重复修改同一部分。
 - 从最新 origin/main 开始；开发中用 merge 同步主线，不默认 rebase 或强制推送。
-- 默认只完成本地验证和提交，不自动 push、提 PR 或发布。用户明确授权推送交付时，按以下流程执行；仅要求本地提交时不启动远端流程。
+- 默认只完成本地验证和提交；用户授权推送后执行下述流程。仅要求本地提交时不启动远端流程，不自动发布。
 - 推送前 `git fetch origin`，在自己的开发分支用 `git merge origin/main` 同步主线，完成相关本地验证后 `git push origin <开发分支>`。Codex 使用 `codex/dev`，Claude 使用 `claude/dev-env`。
-- 获准推送交付包含创建或更新指向 main 的 PR，并执行 `gh pr merge --auto --merge <PR编号>` 开启自动合并；已有同分支 PR 时更新它，不重复创建。PR 描述记录最终变更、实际验证及限制。单独 push 不会自动创建 PR。
-- 由 GitHub 的 Backend、Frontend、Desktop E2E 必需检查通过后合并；不使用 `--admin` 绕过检查，不关闭主线保护，不删除长期开发分支。CI 失败或冲突时修复、验证、再推送；不能修复则报告原因。
-- 合并后确认 PR 状态与 main CI 结果，在各自工作区 fetch 并 merge origin/main；有未提交改动时先保留现场，不覆盖其他 Agent 的工作。无需本地 checkout main；main 未被任何 worktree 使用时可用 `git fetch origin main:main` 快进本地引用。整体联调按变更范围执行。
+- Agent 自行判断改动是否集中、验证完成且适合审阅，合适时提指向 main 的 PR；已有对应 PR 则更新，不按每次 commit 或 push 拆 PR。PR 说明变更、验证及限制；交接时告知本轮是否提了或更新了 PR，并提供链接。
+- 默认不合并 PR、不开启自动合并；用户明确要求合并后才执行，且须通过 Backend、Frontend、Desktop E2E 必需检查。不使用 `--admin` 绕过检查，不关闭主线保护，不删除长期开发分支。CI 失败或冲突时修复、验证、再推送；不能修复则报告原因。
+- 合并后确认 PR 状态与 main CI 结果，在两个工作区 fetch、merge origin/main，并正常 push 回各自开发分支；纯同步不提 PR。有未提交改动或其他 Agent 正在工作时保留现场并报告暂缓同步。无需 checkout main，整体联调按变更范围执行。
 - CI 与交付命令详见 `.github/CI.md`。
 - 各 worktree 通过 Git 同步 AGENTS.md 和 dev-docs/，不要用整目录复制覆盖未提交的文档改动；.agents/ 单独复制，依赖分别安装。修改开发约定后随提交同步到其他活动 worktree，保留各目录独有的有效内容。
 

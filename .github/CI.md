@@ -1,4 +1,4 @@
-# CI and automatic merging
+# CI and pull requests
 
 `workflows/ci.yml` runs on pull requests targeting `main`, pushes to `main`,
 and manual dispatch. PR checks run on GitHub's test merge commit, using
@@ -32,7 +32,7 @@ the five PR smoke tests are not a substitute for those checks.
 ## One-time GitHub setup
 
 1. Push this configuration and open its initial PR. Verify all three jobs on
-   GitHub before relying on automatic merging. Local checks do not verify a
+   GitHub before relying on required checks. Local checks do not verify a
    hosted runner or repository settings.
 2. In **Settings → Branches**, add a protection rule for exactly `main`:
    - Require a pull request before merging, without requiring a human approval.
@@ -40,33 +40,37 @@ the five PR smoke tests are not a substitute for those checks.
      after their first run.
    - Require branches to be up to date before merging.
    - Do not allow bypassing these settings; do not allow force pushes or deletion.
-3. In **Settings → General → Pull Requests**, enable **Allow auto-merge** and
-   **Allow merge commits**. Leave **Automatically delete head branches** off
+3. In **Settings → General → Pull Requests**, enable **Allow merge commits**.
+   Auto-merge is not required. Leave **Automatically delete head branches** off
    because `codex/dev` and `claude/dev-env` are reused.
-4. Merge the initial configuration PR after its hosted checks pass. Future PRs
-   can use auto-merge as described below.
+4. Merge PRs only after the user explicitly requests it and hosted checks pass.
 
-These repository settings are not applied by the workflow file. Do not use
-`gh pr merge --auto` as a substitute for required checks: an already mergeable
-PR can merge immediately. Configure protection before enabling auto-merge.
+These repository settings are not applied by the workflow file. Agents must
+not enable auto-merge or merge a PR without an explicit user request to merge.
 
 ## Each development change
 
-The local development agent uses its existing authenticated GitHub CLI. After
-the authorized work and local validation, push the development branch, create
-a PR to `main` if none is open, and enable auto-merge. Example for Codex:
+The local development agent uses its existing authenticated GitHub CLI. Remote
+actions require authorization to push; otherwise keep work local. After local
+validation, push the development branch and decide whether the changes form a
+focused, independently reviewable PR to `main`. Do not open a PR mechanically
+for every commit or push. Example for Codex when ready for review:
 
 ```sh
 git push origin codex/dev
 gh pr create --base main --head codex/dev --title 'Describe the change' --body-file /path/to/pr-body.md
-gh pr merge --auto --merge <PR-number>
 ```
 
 For Claude, substitute `claude/dev-env`. If a PR is already open, push updates
 to it instead of creating another. Do not use `--admin` or `--delete-branch`.
-Creating the PR and enabling auto-merge are local-agent steps, not automatic
-effects of `git push` or this CI workflow. They can be performed as one
-authorized delivery task, without a separate manual click on GitHub.
+An open PR includes subsequent pushes to its source branch; keep unrelated work
+out of that PR. At handoff, state whether a PR was created or updated and provide
+its link, validation results and limitations. Leave it open for the user to
+review. Only after the user explicitly asks to merge and required checks pass:
+
+```sh
+gh pr merge --merge <PR-number>
+```
 
 If `main` advances, update the affected branch in its own working directory:
 
@@ -77,15 +81,17 @@ git merge origin/main
 ```
 
 This triggers fresh PR checks. Conflicts and failed tests block merging and
-require a fix; there is no unattended conflict resolution. After merging,
-both development branches should fetch and merge `origin/main` before their
-next change. No directory needs to check out `main`.
+require a fix; there is no unattended conflict resolution. After an authorized
+merge, confirm the PR state and main CI result, then fetch and merge `origin/main`
+in both workspaces and push each development branch normally. Preserve dirty
+workspaces or another agent's ongoing work and report any deferred sync. Pure
+branch synchronization does not need a PR. No directory needs to check out `main`.
 
 The CI token has read-only repository permissions. No PAT, GitHub App, automatic
 approval bot or privileged `pull_request_target` workflow is added. Creating
 PRs through an Actions `GITHUB_TOKEN` can require approval before subsequent
 CI runs; using the local CLI avoids that extra automation credential flow.
 
-References: [GitHub auto-merge](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/automatically-merging-a-pull-request),
+References: [Reviewable changes](https://docs.github.com/en/pull-requests/concepts/helping-others-review-your-changes),
 [workflow token event behavior](https://docs.github.com/en/actions/concepts/security/github_token),
 [runner images](https://github.com/actions/runner-images).
