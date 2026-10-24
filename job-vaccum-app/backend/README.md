@@ -351,3 +351,93 @@ emit the same jobs.changed / schedules.updated events as existing UI writes.
 for the desktop protocol tests. It is not a production switch or packaged entry.
 Connection examples and protocol test instructions are in the desktop README;
 actual verification results are recorded in DEVELOPMENT-STATUS.
+
+## M6 advanced parameters and Mihomo
+
+Resume removes the previous execution's `stats.proxy` in the same transaction.
+Fresh proxy counters are published when the current coordinator finishes; startup
+failure before pool creation or a scoring-only resume leaves the field absent.
+Committed jobs, the configuration snapshot and cumulative task attempts remain intact.
+
+Use `settings.save` with `run_mode: "advanced"` and an `advanced_parameters`
+patch; omitted nested fields (including per-platform values) remain unchanged.
+`proxy.mode` independently selects `off`, `ordinary`, or `mihomo`. Advanced
+parameters work with proxy off. Default mode retains its fixed conservative
+values. `runs.preview.parameters` reports effective values; every run and manual
+rescore freezes those values, and Resume uses the original snapshot. See the
+[M6 contract](../../dev-docs/CONTRACTS.md#m6-后端配置与执行2026-10-24)
+for field names, defaults, validation, patch examples and M9 integration.
+
+`pipeline/advanced.py` owns public configuration validation. `pipeline/retrieval.py`
+coordinates platform/port concurrency outside SQLite, with service inbox events
+for task state and atomic commits. `proxy/mihomo.py` reads explicit YAML nodes,
+checks free loopback ports, creates private temporary groups/listeners, validates
+with the supplied kernel, and starts only an App-owned instance. PyYAML is locked
+in uv.lock; the JobSpy SHA and all pre-existing dependency versions are unchanged.
+`proxy/pool.py` manages node reservations, actual IPv4 uniqueness, cooldown,
+batch drain, bounded pressure rotation and port disable. Each batch contains at
+most `batch_size` JobSpy attempts; retryable failures rejoin the shared queue
+within the task attempt budget, after the batch drains. Partial records and HTTP
+counts accumulate until one final task commit. Idle healthy ports wait for other
+in-flight batches to return work; disabled ports return reserved work.
+`failed_node_cooldown_seconds` defaults to 60 and skips failed candidates across
+ports, independently of the 300-second exit IP cooldown. Old settings and snapshots
+use 60 when the field is absent. Selection is confirmed by reading the controller
+group back. Ordinary retention repeats both delay checks and verifies the exit;
+a changed IP is accepted only after uniqueness/cooldown checks. Exit detection
+uses ipify, then icanhazip on failure, through the same listener.
+Mihomo proxies LinkedIn only; Indeed runs directly and independently of kernel
+validation/startup failures. Indeed-only runs never read node files or start Mihomo. Ordinary proxy applies to both platforms. There is
+no implicit direct fallback after a pool error.
+
+Supply an executable kernel and a local YAML file containing standalone concrete
+`proxies` via `mihomo.executable_path/config_path`. The application does not read
+subscriptions, import provider-only configurations, alter user files, connect to
+an existing proxy client or change system proxy settings. Nodes depending on
+user groups (`dialer-proxy`) and direct pseudo-nodes are rejected. Other original
+configuration sections are not copied. Secret node fields exist only in memory
+and the run's 0600 temporary config inside a 0700 directory. The random controller
+secret never enters SQLite, snapshots or protocol output.
+
+A dedicated owned process holds the kernel and watches its pipe to the service.
+Normal close or service death closes the pipe, which terminates/reaps that kernel
+and deletes its directory. No persisted PID scan is used. Electron's existing
+process-group deadline covers forced Quit; App tmp left by a group hard kill is
+cleared on the next locked startup. Stop waits for retrieval cleanup and already
+sent score results. Closing the window retains the existing background schedule.
+
+Mihomo's documented [HTTP listener fields](https://wiki.metacubex.one/en/config/inbound/listeners/)
+and [controller API](https://wiki.metacubex.one/en/api/) define the generated
+listener routes, Bearer authentication, proxy selection and delay probes.
+`tests/test_mihomo.py` verifies the coordinator using fake controls/exits/clocks,
+loopback HTTP, fake scraper/LLM and a spawned synthetic kernel. It does not verify
+real Mihomo or public exit connectivity. Exact executed checks and outstanding
+validation remain in DEVELOPMENT-STATUS. No React settings page or MCP tool is
+included in this delivery.
+
+After building the onedir backend, the optional frozen-process smoke check is:
+
+```sh
+uv run --locked python tests/mihomo_service_smoke.py ../dist/backend/job-vaccum-service/job-vaccum-service
+```
+
+It generates a temporary synthetic kernel/controller whose proxy always rejects
+CONNECT locally. No public requests or real node credentials are used; success
+requires the frozen service to start its owner/controller, report exit verification
+failure without starting JobSpy, remove tmp resources and exit on EOF.
+
+
+M6 follow-up regressions: `uv run --locked pytest -q tests/test_mihomo.py tests/test_mihomo_followup.py`.
+For an explicitly authorized live check, `tests/manual_mihomo.py` is an opt-in
+entry point (not collected by pytest):
+
+```sh
+uv run --locked python tests/manual_mihomo.py --kernel /path/to/mihomo --nodes /path/to/nodes.yaml
+```
+
+It uses two dedicated listeners, reports only counts/status, verifies source
+bytes unchanged and releases ports/temp resources. `--delay-threshold-ms` and
+`--max-candidates` bound candidate checks. Only add `--query`, `--location` and
+`--results` with authorization for one real LinkedIn attempt; no LLM is called,
+no result file is saved, and a 429 remains a failed attempt. It does not attach to
+an existing client. Actual live outcomes and limitations belong in DEVELOPMENT-STATUS.

@@ -133,3 +133,7 @@ checked_at 是每个计划的检查水位，由 main 时钟调用 service 更新
 手动创建只要求 title，缺失 description 存空字符串，缺失来源/query/方向为空集合，不伪造平台、Search 或发布日期；first_seen_at 为本机创建时间。jobs + applications 在同一事务写入，初始评分为空/unscored，不创建评分任务。清理按既有 applications 保护，无额外正文副本；移出清单后遵循普通清理规则。
 
 手动编辑在同一事务中修改允许的内容、company_key、直链 identity 及清单 status/notes/updated_at，added_at 与首次发现/评分不变。抓取实体禁止内容覆盖。唯一直链或非空 JD/公司精确历史匹配的重复创建明确拒绝，保留已有实体及清单字段；不自动合并。直链编辑维护已有身份唯一约束，抓取后补入的来源身份不随主直链编辑丢失。抓取命中手动实体仍按现有先入库固定规则合并关联，不改变 origin 或旧正文。
+
+## M6 无迁移配置补充
+
+沿用 settings 分 key 保存 `run_mode`、`advanced_parameters`、`mihomo`，proxy.mode 增加 mihomo。运行快照保存非秘密配置及实际 parameters；用户内核/节点文件路径可入快照，节点内容、认证代理 URL、随机 controller secret 不入库。Resume 保持原路径及参数，从同一路径重新读取当前用户节点/凭据；不保存节点文件副本用于恢复。代理轮换诊断只在 runs.stats_json 的 proxy 子对象保存本次尝试的计数，无节点表、端口表或 PID 恢复记录。

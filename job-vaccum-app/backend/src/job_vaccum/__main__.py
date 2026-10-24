@@ -23,6 +23,8 @@ def bound_shutdown(shutdown):
     threading.Event().wait(10)
     logging.error('SHUTDOWN_TIMEOUT: Ending unfinished backend work.')
     for child in multiprocessing.active_children():
+        if child.name == 'mihomo-owner':
+            continue  # Pipe EOF on our exit makes the owner reap its kernel.
         try:
             child.kill()
             child.join(0.5)

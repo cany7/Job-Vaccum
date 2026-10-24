@@ -160,7 +160,7 @@ Runs 普通列表默认 50 条、上限 50，按创建时间倒序并以 ID 稳�
 
 list_searches 沿用 M8 的读取入口，包含 queries，创建/修改后的 ID 可以直接用于岗位筛选和 Schedule 选择。create 与 update 都要实现，不只交付修改工具；名称和表达式的校验复用 directions.save / queries.save。
 
-全局配置先覆盖已有 cities、country_indeed、platforms、rules、auto_score_enabled；遵守当前模型/评分模板等依赖校验。若 M6 已按既定契约提供可编辑的抓取参数，可按同一契约纳入明确白名单；不把尚未配置化的代码常量顺带改为新设置。
+全局配置先覆盖已有 cities、country_indeed、platforms、rules、auto_score_enabled；遵守当前模型/评分模板等依赖校验。M6 已提供的 run_mode、advanced_parameters 可按 CONTRACTS 纳入明确白名单；若开放代理管理，再显式纳入 proxy/mihomo 的非秘密字段（包括 failed_node_cooldown_seconds）。不把尚未配置化的代码常量顺带改为新设置。
 
 不把 settings.get 的完整内部对象直接公开。模型 Key、代理认证、简历输入、草稿等不在此工具范围；也不增加模型管理、AI 生成配置、Search/Query 删除或排序工具。配置写入只影响后续运行，在途运行和历史 Run 沿用其既有快照。
 
@@ -195,4 +195,6 @@ M9 主要包装 directions.save、queries.save、settings.get/save，并同步�
 
 ## 9. M8 实施细化
 
-业务命令、来源迁移、空值/重复身份语义、错误和事件见 [CONTRACTS 的 M8 节](CONTRACTS.md) 及 [DATA-MODEL](DATA-MODEL.md)。本机服务采用无会话 Streamable HTTP POST；连接配置存当前 App 数据目录的 `mcp.json`（0600，port/token），首次分配端口后复用，Host/Origin 精确匹配该端口的 loopback authority。详细连接步骤和可运行 SDK 客户端见 [desktop README](../job-vaccum-app/desktop/README.md#m8-local-mcp)。本轮实施只包含 M8，M9 仍独立待授权；M6 执行参数按合并后的正式契约联调，不增加占位参数。
+业务命令、来源迁移、空值/重复身份语义、错误和事件见 [CONTRACTS 的 M8 节](CONTRACTS.md) 及 [DATA-MODEL](DATA-MODEL.md)。本机服务采用无会话 Streamable HTTP POST；连接配置存当前 App 数据目录的 `mcp.json`（0600，port/token），首次分配端口后复用，Host/Origin 精确匹配该端口的 loopback authority。详细连接步骤和可运行 SDK 客户端见 [desktop README](../job-vaccum-app/desktop/README.md#m8-local-mcp)。M9 仍独立待授权。
+
+M6 汇合后无需增加或改造 M8 tools：preview_run 继续返回后端计算的有效抓取/LLM 参数、任务数量及自动评分开关，不返回完整代理配置或验证代理就绪。后端 runs.detail 保存的非秘密配置快照包含 proxy/mihomo；MCP list_runs/get_run 仍只返回状态、进度与业务计数，不公开该快照。代理参数读取/修改属于 M9 配置工具范围。

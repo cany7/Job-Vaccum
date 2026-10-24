@@ -6,12 +6,14 @@ import math
 from urllib.parse import urlsplit
 from uuid import uuid4
 
+from job_vaccum.pipeline.advanced import ADVANCED, MIHOMO, patch_config
 from job_vaccum.service.protocol import CommandError, check_result_size
 from job_vaccum.storage.filters import fields, string, strings, integer, boolean, choice
 
 PARAMETERS = {'results_wanted': {'linkedin': 10, 'indeed': 100}, 'hours_old': 72,
               'retrieval_concurrency': 1, 'timeout_seconds': 600, 'max_attempts': 3,
-              'retry_base_seconds': 5, 'llm_concurrency': 1, 'llm_rpm': 10}
+              'retry_base_seconds': 5, 'llm_concurrency': 1, 'llm_rpm': 10,
+              'llm_connect_timeout_seconds': 10, 'llm_read_timeout_seconds': 120}
 RULE_IDS = ('test_jobs', 'senior_title', 'experience', 'authorization', 'language', 'graduation', 'degree')
 # Stable IDs keep unsaved defaults consistent across reads and restarts.
 DEFAULT_CITIES = [
@@ -38,7 +40,8 @@ DEFAULT_CITIES = [
 DEFAULTS = {'retention_days': 14, 'auto_score_enabled': True, 'rubric': '', 'model': None,
             'cities': DEFAULT_CITIES, 'country_indeed': 'usa', 'platforms': ['linkedin', 'indeed'],
             'rules': {'enabled_rule_ids': [], 'experience_max_years': 3, 'excluded_companies': [], 'qualifications': {}},
-            'proxy': {'mode': 'off', 'url': None}}
+            'proxy': {'mode': 'off', 'url': None},
+            'run_mode': 'default', 'advanced_parameters': ADVANCED, 'mihomo': MIHOMO}
 
 
 def proxy_origin(value, *, credentials=False):
@@ -141,6 +144,7 @@ def settings(repo):
         if key in result:
             result[key] = json.loads(raw)
     result['directions'] = repo.directions()
+    result['mihomo'] = {**MIHOMO, **result['mihomo']}
     return result
 
 
@@ -171,12 +175,18 @@ def save(repo, params):
             validate_rules(value)
         elif key == 'model':
             validate_model(value)
+        elif key == 'run_mode':
+            choice(value, key, ('default', 'advanced'))
+        elif key in ('advanced_parameters', 'mihomo'):
+            patch[key] = patch_config(settings(repo)[key], value, mihomo=key == 'mihomo')
         elif key == 'proxy':
             fields(value, {'mode', 'url'}, {'mode', 'url'})
-            choice(value['mode'], 'proxy mode', ('off', 'ordinary'))
+            choice(value['mode'], 'proxy mode', ('off', 'ordinary', 'mihomo'))
             if value['url'] is not None:
                 patch[key]['url'] = proxy_origin(value['url'])
     merged = {**settings(repo), **patch}
+    if merged['proxy']['mode'] == 'mihomo' and merged['run_mode'] != 'advanced':
+        raise CommandError('Mihomo requires advanced mode.')
     if (patch.get('auto_score_enabled') is True or 'rubric' in patch and merged['auto_score_enabled']) and not merged['rubric'].strip():
         raise CommandError('Add a scoring rubric before enabling automatic scoring.')
     with repo.db:
