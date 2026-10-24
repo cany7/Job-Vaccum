@@ -2,6 +2,27 @@
 
 最新状态：2026-10-24 M6 后端与 M8 本机 MCP 已汇合，M5 Electron 草稿桥接已补齐；审阅第四点「清理运行后保留岗位卡在 pending」已修复并完成新增定向验证。M5 renderer 引导/Skip、M9 仍未实施；筛选规则问题按用户要求暂缓。既有验证保留在各阶段记录，本轮检查与限制见下节。
 
+## Markdown 与 Electron 安全补丁（2026-10-24，Codex）
+
+按用户授权，将 markdown-it 14.3.2 更新为 14.3.3、Electron 44.9.0 更新为 44.9.3；同步精确依赖声明、标准 package-lock、electron-builder 的 electronVersion 及 CONTRACTS 当前 Markdown 版本。未改业务代码或 Python 依赖，JobSpy 完整 SHA 不变。新增两项约 400 KB 未闭合链接标题/标签的解析回归，使用与 JD 相同的 Markdown 配置和有 5 秒期限的独立子进程，避免漏洞版本挂住测试；原版 14.3.2 的未闭合标题已单独复现超过 5 秒后被终止。
+
+验证环境：Codex 工作区，macOS 27.0.1 arm64、Node 26.12.1、npm 11.20.0、Electron 44.9.3、uv 0.13.5、Python 3.13.12。仅用合成岗位与临时 SQLite，未调用真实网站、模型或代理。两目录通过 Git 同步提交，分别安装依赖，不复制 node_modules。
+
+| 命令 / 检查 | 实际结果 |
+| --- | --- |
+| desktop `npm audit --json` | 0 vulnerabilities（更新前两个高危依赖告警已消失） |
+| desktop `npm test` | 类型检查、生产构建及 27 项 Node 测试通过；新增两项分别约 297ms / 270ms，含子进程启动 |
+| desktop `npx --no-install playwright test --grep '@smoke\|request failures, skeleton rows, Markdown safety and external links'` | 8 passed / 1.2m；包括生命周期、列表/键盘、后台时钟、后端异常、数据导出及 Markdown 安全/链接 |
+| desktop `npm run package:dir` | arm64 App 与 PyInstaller 后端构建成功；读取随包 Electron Framework Info.plist 确认 44.9.3 |
+| 指定 `JV_EXECUTABLE` 为 tmp/security-package-check 下独立复制的 App，再执行 Playwright `--grep 'shell, About with real backend\|request failures, skeleton rows, Markdown safety and external links'` | 2 passed / 10.2s；cwd `/`、PATH `/usr/bin:/bin`，随包后端诊断、SQLite、关窗重开、单实例、退出及 Markdown 渲染通过；已查看 Markdown 截图 |
+| `git diff --check` | 通过 |
+
+本轮仅本地提交，不推送、不提 PR、不合并 main。测试产物位于忽略的 tmp、build、dist、release；未制作 DMG，未签名/公证或公开发布，未验证其他 macOS/机器；未重跑完整后端或完整 E2E 套件。
+
+## PR 协作约定调整（2026-10-24，Codex）
+
+按用户要求简化 AGENTS 与 CI 说明：获准推送后由 Agent 判断何时创建或更新可审阅的 PR，交接明确告知 PR 及链接；默认不合并、不开自动合并，等待用户明确要求。合并收尾同时同步本地与远端开发分支，纯同步不提 PR。仅修改文档，执行 `git diff --check` 与约定一致性检查；本地提交后快进同步干净的 Claude 工作区，未推送、创建 PR 或执行应用测试，未修改远端设置。
+
 ## M5 桥接与清理修复推送验证（2026-10-24，Codex）
 
 用户授权推送已有提交、创建 PR 并同步 Claude 工作区。fetch/merge origin/main 无新增变更；PR #19 包含 a915961、2ae286a，不包含根目录两份未提交的筛除文档。
