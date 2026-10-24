@@ -26,6 +26,55 @@ const { registerBusinessIpc } = require('../dist/electron/main/business-ipc.js')
 Module._load = originalLoad;
 
 for (const failure of ['unavailable', 'decrypt']) {
+  test(`M5 generation preserves input on ${failure} key and injects the current key before dispatch`, async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'jv-drafts-ipc-'));
+    const backend = new EventEmitter();
+    const calls = [];
+    let modelKey = null;
+    let savedInput;
+    backend.request = async (method, params) => {
+      calls.push([method, params]);
+      if (method === 'internal.credentials') {
+        modelKey = params.model_key;
+        return { ok: true, result: { has_key: modelKey !== null } };
+      }
+      assert.equal(method, 'drafts.generate');
+      savedInput = params.input;
+      return modelKey ? { ok: true, result: { operation_id: 'generated' } }
+        : { ok: false, error: { code: 'AUTH_ERROR', message: 'Missing key.', retryable: false } };
+    };
+    try {
+      registerBusinessIpc(backend, () => null, event => {
+        if (!event.trusted) throw new Error('Untrusted sender');
+      }, directory);
+      const invoke = (name, params) => handlers.get(name)({ trusted: true }, params);
+      await invoke('credentials:set-model-key', { key: 'synthetic-key' });
+      const encrypted = await readFile(path.join(directory, 'model-key.enc'));
+      available = failure !== 'unavailable'; broken = failure === 'decrypt';
+      calls.length = 0;
+      const params = { kind: 'search', input: { text: '  Keep my input\n', conditions: {} } };
+      const result = await invoke('drafts:generate', params);
+      assert.equal(result.error.code, 'AUTH_ERROR');
+      assert.match(result.error.message, /Keychain/);
+      assert.deepEqual(calls, [['internal.credentials', { model_key: null }], ['drafts.generate', params]]);
+      assert.deepEqual(savedInput, params.input);
+      assert.deepEqual(await readFile(path.join(directory, 'model-key.enc')), encrypted);
+      available = true; broken = false;
+      // Emulate a fresh service or stale in-memory key: each generate must re-inject.
+      modelKey = null; calls.length = 0;
+      assert.equal((await invoke('drafts:generate', params)).ok, true);
+      assert.deepEqual(calls, [['internal.credentials', { model_key: 'synthetic-key' }], ['drafts.generate', params]]);
+      calls.length = 0;
+      await assert.rejects(handlers.get('drafts:generate')({ trusted: false }, params), /Untrusted sender/);
+      assert.deepEqual(calls, []);
+    } finally {
+      available = true; broken = false;
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const failure of ['unavailable', 'decrypt']) {
   test(`unreadable key (${failure}) permits configuration and non-scoring runs, but preserves auth failures`, async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'jv-business-ipc-'));
     const backend = new EventEmitter();

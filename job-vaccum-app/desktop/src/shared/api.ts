@@ -32,7 +32,8 @@ export type ApiResult<T> = { ok: true; result: T } | { ok: false; error: ApiErro
 export interface AppStatus {
   active_run: import("./runs").ActiveRun | null;
   operations: ({ operation_id: string; kind: 'export' } |
-    { operation_id: string; kind: 'model_test'; status: 'running' | 'cancelling' })[];
+    { operation_id: string; kind: 'model_test'; status: 'running' | 'cancelling' } |
+    { operation_id: string; kind: 'draft_generate'; draft_kind: import('./runs').DraftKind; status: 'running' | 'cancelling' })[];
   cleanup: { status: string };
   configuration_complete: boolean;
   storage: { schema_version: number; journal_mode: string };

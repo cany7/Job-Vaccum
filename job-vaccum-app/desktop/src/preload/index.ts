@@ -31,6 +31,7 @@ const api: JobVaccumApi = {
   getDraft: (params) => ipcRenderer.invoke('drafts:get', params),
   saveDraft: (params) => ipcRenderer.invoke('drafts:save', params),
   applyDraft: (params) => ipcRenderer.invoke('drafts:apply', params),
+  generateDraft: (params) => ipcRenderer.invoke('drafts:generate', params),
   previewRun: (params = {}) => ipcRenderer.invoke('runs:preview', params),
   startRun: (params = {}) => ipcRenderer.invoke('runs:start', params),
   listRuns: (params = {}) => ipcRenderer.invoke('runs:list', params),

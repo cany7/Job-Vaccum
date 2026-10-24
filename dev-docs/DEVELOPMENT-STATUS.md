@@ -1,6 +1,21 @@
 # 开发状态
 
-最新状态：2026-10-24 M6 后端与 M8 本机 MCP 已汇合；本轮修正 Resume 代理统计、统一配置/预览文档并交付。M9 和对应 React 页面仍未实施。既有验证保留在各阶段记录，本轮检查与限制见下节。
+最新状态：2026-10-24 M6 后端与 M8 本机 MCP 已汇合，M5 Electron 草稿桥接已补齐并完成新增定向验证。M5 renderer 引导/Skip、M9 仍未实施；筛选规则与审阅第四点清理状态问题按用户本轮范围未修改。既有验证保留在各阶段记录，本轮检查与限制见下节。
+
+## M5 Electron 草稿桥接（2026-10-24，Codex）
+
+在既有 codex/dev 工作区补齐 M5 shared/main/preload，开工 fetch/merge origin/main 为 Already up to date。新增具名 generateDraft，完整输入/内容/追问类型、draft_generate 状态及 drafts.generated 白名单和事件类型；沿用 get/save/apply、取消和事件转发，不更改 Python 业务、schema、依赖或 M8 工具。先注入当前 safeStorage Key；Keychain 不可读先清空内存 Key，仍让后端保存合法输入再返回受控错误，避免桥接提前拦截丢输入。后续 UI 的事件关联、自动保存先后顺序、追问/Apply 与恢复约定已写入 CONTRACTS 和 desktop README。
+
+验证环境沿用 macOS arm64、项目已声明 Node/npm/Electron 与 uv Python 独立环境。新增 Electron 用例使用临时 SQLite、合成输入与合成 Key，Python peer 仅替换模型 I/O 并禁止外部网络，main/preload/CLI/service 真实执行；不使用私人凭据或付费模型。
+
+| 命令 / 检查 | 实际结果 |
+| --- | --- |
+| desktop `npm run build` | TypeScript 检查与生产构建通过 |
+| desktop `node --test --test-name-pattern='M5 generation' tests/business-ipc.test.cjs` | **2 passed / 92ms**；Keychain 不可用/解密失败、输入继续提交、恢复后注入当前 Key、拒绝不可信发送方 |
+| desktop `npx --no-install playwright test tests/e2e/drafts-bridge.spec.cjs` | **1 passed / 3.5s**；真实桥接生成两类草稿、一轮追问、Apply、取消/状态、错误保留输入、重启持久与事件后连接可用 |
+| `git diff --check` | 通过 |
+
+遵守用户不重复跑既有测试的要求，未运行原有全量 Python/Node/Electron 套件；未实现引导页面、Skip 或视觉检查，未做真实模型质量、安装包验证。筛选条件和清理后孤立 pending 状态的修复不混入本次改动。仅本地提交，不推送、提 PR 或发布。
 
 ## M6 审阅修复及 M8 汇合交付（2026-10-24，Codex）
 

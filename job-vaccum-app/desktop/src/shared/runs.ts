@@ -40,10 +40,16 @@ export interface AdvancedParameters extends Omit<RunParameters, 'retrieval_concu
   retrieval_concurrency: Record<Platform, number>;
 }
 export type DraftKind = 'search' | 'rubric';
+export interface RubricDraftInput { text: string; conditions?: Rules['qualifications'] }
+export interface SearchDraftInput extends RubricDraftInput { clarification_answer?: string }
 export interface SearchDraft { directions: { name: string; queries: { expression: string; enabled: boolean }[] }[];
-  cities: Omit<City, 'id'>[] }
-export type Draft = { draft_kind: 'search'; content: SearchDraft | null } | { draft_kind: 'rubric'; content: string | null };
-export type SaveDraft = { draft_kind: 'search'; content: SearchDraft } | { draft_kind: 'rubric'; content: string };
+  cities: Omit<City, 'id'>[]; clarification?: string }
+export type Draft = { draft_kind: 'search'; content: SearchDraft | null; input: SearchDraftInput | null }
+  | { draft_kind: 'rubric'; content: string | null; input: RubricDraftInput | null };
+type DraftUpdate<Content, Input> = { content: Content; input?: Input } | { content?: Content; input: Input };
+export type SaveDraft = ({ draft_kind: 'search' } & DraftUpdate<SearchDraft, SearchDraftInput>)
+  | ({ draft_kind: 'rubric' } & DraftUpdate<string, RubricDraftInput>);
+export type GenerateDraft = { kind: 'search'; input: SearchDraftInput } | { kind: 'rubric'; input: RubricDraftInput };
 export interface RunParameters {
   results_wanted: Record<Platform, number>; hours_old: number; retrieval_concurrency: number | Record<Platform, number>;
   timeout_seconds: number; max_attempts: number; retry_base_seconds: number; llm_concurrency: number; llm_rpm: number;
@@ -93,6 +99,7 @@ export interface RunsApi {
   getDraft(params: { draft_kind: DraftKind }): Promise<ApiResult<Draft>>;
   saveDraft(params: SaveDraft): Promise<ApiResult<Draft>>;
   applyDraft(params: { draft_kind: DraftKind }): Promise<ApiResult<Draft>>;
+  generateDraft(params: GenerateDraft): Promise<ApiResult<{ operation_id: string }>>;
   previewRun(params?: RunSelection): Promise<ApiResult<{ task_count: number; parameters: RunParameters; auto_score_enabled: boolean }>>;
   startRun(params?: RunSelection & { schedule_id?: string; firing_id?: string }): Promise<ApiResult<{ run_id: string }>>;
   listRuns(params?: { page?: number; page_size?: number; kind?: 'pipeline' | 'rescore' }): Promise<ApiResult<{ items: RunSummary[]; total: number }>>;

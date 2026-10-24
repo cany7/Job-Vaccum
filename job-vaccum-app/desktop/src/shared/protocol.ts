@@ -10,6 +10,7 @@ export const businessMethods = {
   'settings:get': 'settings.get', 'settings:save': 'settings.save',
   'directions:save': 'directions.save', 'directions:delete': 'directions.delete', 'directions:reorder': 'directions.reorder',
   'drafts:get': 'drafts.get', 'drafts:save': 'drafts.save', 'drafts:apply': 'drafts.apply',
+  'drafts:generate': 'drafts.generate',
   'runs:preview': 'runs.preview', 'runs:start': 'runs.start', 'runs:list': 'runs.list',
   'runs:detail': 'runs.detail', 'runs:stop': 'runs.stop', 'runs:resume': 'runs.resume',
   'queries:save': 'queries.save', 'queries:delete': 'queries.delete',

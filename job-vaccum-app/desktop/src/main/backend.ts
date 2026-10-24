@@ -105,7 +105,7 @@ export class Backend extends EventEmitter {
       return;
     }
     if (message.type === "event") {
-      if (!["schedules.updated", "run.updated", "run.stats", "jobs.changed", "cleanup.completed", "operation.completed", "operation.failed", "model.test.completed"].includes(message.name)
+      if (!["schedules.updated", "run.updated", "run.stats", "jobs.changed", "cleanup.completed", "operation.completed", "operation.failed", "model.test.completed", "drafts.generated"].includes(message.name)
         || !Number.isInteger(message.seq) || !message.data) throw new Error("Unexpected event");
       // Let response promises register operation IDs before completion is delivered.
       queueMicrotask(() => this.emit("service-event", message));

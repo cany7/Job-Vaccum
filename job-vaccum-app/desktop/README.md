@@ -67,6 +67,25 @@ matches request ids and settles timed-out/exited requests without replay or
 automatic restart. Python validates command arguments. Startup errors require
 fixing the problem, then quitting/reopening; crash errors retain the last status.
 
+## Draft generation bridge
+
+`window.jobVaccum.generateDraft({kind: 'search' | 'rubric', input})` accepts the
+existing Python M5 contract and returns an operation ID. `getDraft` includes both
+editable `content` and persisted `input`; `saveDraft` accepts content, input, or
+both. Search content may contain one `clarification` question. Main injects the
+current encrypted model key before generation; an unreadable key is cleared in
+the service, which still saves valid input before reporting the error.
+
+The onboarding UI remains to be implemented. Subscribe to `onServiceEvent`
+before requesting generation, correlate/buffer events by operation ID, and read
+`getDraft` after `drafts.generated`; handle `operation.failed` and use
+`cancelOperation` for cancellation. The existing CSV/model-test completion waiter
+does not handle draft success. Flush pending input autosaves before generation:
+a later successful save/apply for that kind cancels its in-flight generation.
+Use `getStatus().operations` and `getDraft` on reopening; never automatically
+replay generation after a timeout or restart. Only Apply updates configuration.
+See [M5 contracts and UI handoff](../../dev-docs/CONTRACTS.md#m5-electron-桥接与后续页面接入2026-10-24).
+
 ## Tests
 
 ```sh
