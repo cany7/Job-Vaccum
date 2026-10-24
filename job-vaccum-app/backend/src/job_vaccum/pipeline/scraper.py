@@ -194,7 +194,7 @@ def process_attempt(spec, parameters, proxy, stop, scrape=None):
 
 
 def retrieve(spec, parameters, proxy, stop, attempt=process_attempt, on_attempt=lambda: None):
-    result = {'records': [], 'warnings': [], 'http_requests': 0, 'http_429': 0, 'error': None, 'attempts': 0}
+    result = {'records': [], 'warnings': [], 'http_requests': 0, 'http_429': 0, 'error': None, 'attempts': 0, 'access_failed': False}
     for index in range(parameters['max_attempts']):
         if stop.is_set():
             break
@@ -210,6 +210,7 @@ def retrieve(spec, parameters, proxy, stop, attempt=process_attempt, on_attempt=
         for key in ('http_requests', 'http_429'):
             result[key] += current.get(key, 0)
         result['error'] = current['error']
+        result['access_failed'] |= bool(current['error'] and current['error']['code'] in ('NETWORK_ERROR', 'RATE_LIMITED', 'WORKER_EXITED', 'PROXY_ERROR'))
         if not current['error'] or not current['error']['retryable']:
             break
         if index + 1 < parameters['max_attempts'] and stop.wait(parameters['retry_base_seconds'] * (2 ** index)):

@@ -223,3 +223,15 @@ M4 后端交付不等同于 R01/R16 的计划部分或完整 M4 renderer 交付�
 - 真实协议的接受响应先于 drafts.generated，事件不携带 Key/简历正文；客户端重新读取持久结果。格式校验不等于事实校验，身份/资格不推断由集中 prompt 约束并留用户审阅。
 
 四协议 HTTP、全局请求间隔和网络错误分类继续由 test_llm 覆盖。本次不包含 Electron 桥接、renderer 引导、Skip 流程、视觉检查、真实模型、安装包或完整 M5 出口验收；实际命令与结果只记 DEVELOPMENT-STATUS。
+
+## M6 后端验证入口
+
+`backend/tests/test_mihomo.py` 使用临时 SQLite、合成节点、FakeController、注入出口探测/时钟、fake scraper/LLM，以及 `fake_mihomo_kernel.py` 的本地假可执行内核：
+
+- P01：默认/高级参数保存与原子拒绝、嵌套部分更新、重启读取、有效快照/Resume；高级直连与普通代理两平台实际并发；LLM 并发/RPM、超时及有限重试实际生效。
+- P02/P06：具体节点解析、provider-only/非法节点拒绝、用户原文件不变、端口占用不影响原服务、生成配置隔离和文件权限、内核校验失败脱敏。
+- P03/P05：两次延迟检测、候选检测预留、重复出口拒绝、失败恢复、冷却、普通保留等待、在途批次耗尽才切换和另一端口继续运行。
+- P04：真实 spawn worker 内使用锁定 JobSpy RequestsRotating 与 curl_cffi 请求本地 429/200，统计 3 次实际请求、1 次 429、成功 query 只尝试一次；压力比率、两次可打断退避、禁止保留压力出口、停用后剩余任务交给健康端口/全停用保留部分结果。
+- R04/R05/S06：并发抓取及评分停止、在途 0 分提交、stopping 互斥、失败计划及等待项接续；真实 owner 子进程清理、service 所有者被 SIGKILL 后管道 EOF 回收假内核及临时配置。
+
+真实控制 HTTP 与进程生命周期测试使用本地假内核，公网出口由假探测返回；没有使用真实 Mihomo 内核、节点或招聘网站。这些测试不代替真实代理连通性、安装包或 React 页面验收；执行命令和结果见 DEVELOPMENT-STATUS。

@@ -134,3 +134,11 @@ main 每秒通过内部 `internal.schedules_check` 检查一次；启动传 app_
 到点或等待项开始时使用当前配置与当前凭据。若所选搜索、模型或代理配置已失效，创建携带具体 error 的 failed run，触发记为 started 并关联该失败运行；不重试、不伪造 asleep 原因，也不阻塞后续等待项。未创建任务的失败运行不可 Resume，修正配置后 Run again/Run now。未运行记录的手动 Run now 使用当前计划选择并改为 started，trigger.source=manual；自动触发 source=schedule。
 
 启动加载代理凭据失败时 main 停止计划时钟并显示原因，要求修正后重新打开，不静默丢弃认证。未读到模型 Key 时内存清空；不需要评分的计划可运行，需要评分的计划以 AUTH_ERROR 形成失败运行。
+
+### M6 后端落地
+
+高级模式参数通过 `pipeline.advanced` 校验，`parameters` 固定实际执行值；默认全局串行，高级按平台并行，Mihomo 按端口批次并行。网络协调器只操作任务快照与内存队列，通过 inbox 通知 service 开始/尝试/结果/清理完成，SQLite 仍由 service 串行提交。评分用 job_id 对应的独立任务同时派发，全局 gate 约束全部 LLM 入口的实际请求起始时间和在途并发，重试/超时从任务参数捕获。
+
+每端口领取至多 batch_size 个完整任务并以 concurrency_per_port 并行处理；本批全部结束后，按真实请求统计与访问错误决定普通/压力轮换。失败/停用端口不领取下一批，剩余任务由其他端口领取；全部停用才报告剩余未完成。检测节点在共享锁下预留，活动出口去重与冷却判断同样原子完成，网络检测在锁外。原节点恢复失败则停用该端口，不在未知出口继续抓取。
+
+专用内核启动前检查用户文件及端口，使用 `-t` 验证生成配置，再启动独立实例并验证控制接口。只连接自己生成密钥的 loopback controller；延迟与公网 IPv4 验证通过后才向 LinkedIn 派发。owner 通过管道存活关系清理 Popen 内核；service EOF/SIGTERM 的 10 秒期限仍保留，期限到达时不杀掉正在负责内核回收的 owner，而由 service 退出关闭管道触发回收。Mihomo 失败不转直连；具体参数和诊断见 CONTRACTS M6。

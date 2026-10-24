@@ -19,17 +19,34 @@ export interface ModelConfig {
 export interface PipelineSettings {
   retention_days: number; auto_score_enabled: boolean; rubric: string; model: ModelConfig | null;
   cities: City[]; country_indeed: string; platforms: Platform[]; rules: Rules;
-  proxy: { mode: 'off' | 'ordinary'; url: string | null };
+  proxy: { mode: 'off' | 'ordinary' | 'mihomo'; url: string | null };
+  run_mode: 'default' | 'advanced'; advanced_parameters: AdvancedParameters; mihomo: MihomoConfig;
 }
-export type SettingsPatch = Partial<Omit<PipelineSettings, 'cities'>> & { cities?: CityInput[] };
+export type SettingsPatch = Partial<Omit<PipelineSettings, 'cities' | 'advanced_parameters' | 'mihomo'>> & {
+  cities?: CityInput[];
+  advanced_parameters?: Partial<Omit<AdvancedParameters, 'results_wanted' | 'retrieval_concurrency'>> & {
+    results_wanted?: Partial<Record<Platform, number>>; retrieval_concurrency?: Partial<Record<Platform, number>> };
+  mihomo?: Partial<MihomoConfig>;
+};
+export interface MihomoConfig {
+  executable_path: string | null; config_path: string | null;
+  port_count: number; concurrency_per_port: number; batch_size: number;
+  start_port: number; controller_port: number; cooldown_seconds: number; max_candidates: number;
+  delay_threshold_ms: number; pressure_backoff_seconds: number; retain_wait_seconds: number; http_429_ratio: number;
+}
+export interface AdvancedParameters extends Omit<RunParameters, 'retrieval_concurrency'> {
+  llm_connect_timeout_seconds: number; llm_read_timeout_seconds: number;
+  retrieval_concurrency: Record<Platform, number>;
+}
 export type DraftKind = 'search' | 'rubric';
 export interface SearchDraft { directions: { name: string; queries: { expression: string; enabled: boolean }[] }[];
   cities: Omit<City, 'id'>[] }
 export type Draft = { draft_kind: 'search'; content: SearchDraft | null } | { draft_kind: 'rubric'; content: string | null };
 export type SaveDraft = { draft_kind: 'search'; content: SearchDraft } | { draft_kind: 'rubric'; content: string };
 export interface RunParameters {
-  results_wanted: Record<Platform, number>; hours_old: number; retrieval_concurrency: number;
+  results_wanted: Record<Platform, number>; hours_old: number; retrieval_concurrency: number | Record<Platform, number>;
   timeout_seconds: number; max_attempts: number; retry_base_seconds: number; llm_concurrency: number; llm_rpm: number;
+  llm_connect_timeout_seconds?: number; llm_read_timeout_seconds?: number;
 }
 export interface RunSnapshot extends PipelineSettings { directions: Direction[]; parameters: RunParameters; jobspy_commit: string;
   /** Searches chosen for the run; null or absent (older runs) means all. */
@@ -41,6 +58,7 @@ export interface TaskCounts { total: number; succeeded: number; failed: number; 
 export interface RunStats {
   retrieval: TaskCounts; scoring: TaskCounts; received_count: number; filtered_count: number; filter_reasons?: Record<string, number>;
   matched_job_count: number; new_job_count: number;
+  proxy?: { rotations: number; candidate_failures: number; retained: number; pressure_events: number; disabled_ports: number };
   directions: { direction_id: string; name: string; received_count: number; filtered_count: number; matched_job_count: number }[];
 }
 export interface RunSummary {

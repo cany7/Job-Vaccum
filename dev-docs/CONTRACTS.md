@@ -291,3 +291,55 @@ fake LLM 仅 Python 测试依赖注入，支持成功（含 0 分）、无效输
 - `cleanup.preview` 增加 `firings`；`cleanup.execute`/cleanup.completed 增加 `deleted_firings`。waiting 不作为清理候选；0 保留期仍关闭自动清理；计划配置不删除。
 - 计划保存/删除、等待开始、取消、未运行变化、删除搜索及触发记录清理发送 `schedules.updated {}`。run.updated/run.stats 继续用于自动启动的运行。
 - preload 具名 API：listSchedules、saveSchedule、deleteSchedule、cancelFiring、deleteFiring；startRun 接受上述扩展。主进程本机偏好具名 API `getDesktopPreferences()` / `setDesktopPreferences({show_menu_bar_icon:boolean})` 返回该偏好，默认 true，保存在 userData/desktop-preferences.json；不写业务 settings。两者沿用受信任 sender 验证。Appearance 的开关及 Runs 计划编辑器由后续 renderer 阶段接入。
+
+## M6 后端配置与执行（2026-10-24）
+
+M6 本次仅交付后台及 shared 类型，不新增 React 页面或 MCP 工具。沿用 `settings.get/save`、`runs.preview/start/resume/detail`、计划和停止接口，protocol_version=1 / schema_version=5 不变。
+
+`settings.get` 新增三个非秘密字段，`settings.save` 可部分修改：
+
+| 字段 | 语义 |
+| --- | --- |
+| `run_mode` | `default`（默认）或 `advanced`；与代理开关独立 |
+| `advanced_parameters` | 下表参数；对象内省略字段保留，`results_wanted` / `retrieval_concurrency` 内省略的平台也保留 |
+| `mihomo` | 下表本地路径及调度参数；对象内省略字段保留，不接收节点内容、控制密钥或任意额外字段 |
+| `proxy.mode` | 扩展为 `off/ordinary/mihomo`；沿用完整 `{mode,url}` 对象写入。`url` 仍仅接受无认证 origin 或 null，Mihomo 模式忽略它；Mihomo 要求 `run_mode=advanced` |
+
+保存只更新配置，不启动内核或访问网络。非法字段/类型/组合整笔拒绝，返回 VALIDATION_ERROR，不部分落库。非代理池模式不要求 Mihomo 文件存在；保存路径允许 null，非空时须为绝对本地路径。仅在预览/开始/续跑 Mihomo pipeline 时读取用户节点文件校验。进程启动、端口及控制/出口检测在后台运行，失败反映于 run/error 和未执行 task/error，错误码 PROXY_ERROR；不切直连。
+
+| `advanced_parameters` 字段 | 高级初值 | 校验与执行 |
+| --- | --- | --- |
+| `results_wanted` | `{linkedin:100,indeed:200}` | 各平台正整数；实际传给 JobSpy |
+| `hours_old` | 72 | 非负整数；0 不限发布时间 |
+| `retrieval_concurrency` | `{linkedin:1,indeed:1}` | 各平台正整数；高级直连/普通代理分别限制两平台，Mihomo 中仅 Indeed 使用此值，LinkedIn 使用端口并发 |
+| `timeout_seconds` | 600 | 有限正数；整次抓取尝试的超时 |
+| `max_attempts` | 3 | 正整数；抓取及 LLM 的有限尝试总数，显式 Resume 重新给予预算 |
+| `retry_base_seconds` | 5 | 有限正数；任务/LLM 指数退避的基础秒数，可停止 |
+| `llm_concurrency` / `llm_rpm` | 4 / 30 | 并发正整数、RPM 有限正数；评分、测试、草稿及重试共享非突发 gate |
+| `llm_connect_timeout_seconds` / `llm_read_timeout_seconds` | 10 / 120 | 有限正数；实际 requests connect/read timeout，读取超时不是整次请求总时限 |
+
+默认模式保持 LinkedIn 10 / Indeed 100、全局抓取并发 1、LLM 1/10，其余见 ARCHITECTURE；保存高级值后必须切 advanced 才应用。`runs.preview.parameters` 与 `runs.detail.config_snapshot.parameters` 是本轮**有效**参数：默认模式 `retrieval_concurrency` 为数值 1，高级模式为平台对象。旧快照没有新增超时字段时按 10/120 执行。运行中保存不改变本轮，Resume 使用原 parameters；默认/高级切换不抹去已存高级值。手动评分同样快照有效参数。在 run 存在时，其他 LLM 入口共用该 run 的全局并发/RPM；无 run 时，新 operation 使用当前模式参数，已接受 operation 的重试/超时参数保持原值。
+
+| `mihomo` 字段 | 初值 | 校验/含义 |
+| --- | --- | --- |
+| `executable_path` / `config_path` | null / null | 用户提供的可执行内核和具体节点 YAML 路径；不导入订阅或 provider-only 配置 |
+| `port_count` / `start_port` / `controller_port` | 8 / 7901 / 9099 | 正整数、端口 1..65535；连续 listener 范围不得越界或包含 controller |
+| `concurrency_per_port` / `batch_size` | 2 / 2 | 正整数；batch_size 是每端口每批 JobSpy **任务数**，含该任务的有限重试；每批最多 concurrency_per_port 并行 |
+| `cooldown_seconds` | 300 | 有限正数；换下/停用出口的冷却秒数 |
+| `max_candidates` / `delay_threshold_ms` | 30 / 1000 | 正整数候选上限 / 有限正数延迟阈值；每候选两次 HTTPS 检测（停止可中断），任一次失败淘汰 |
+| `pressure_backoff_seconds` / `retain_wait_seconds` | 30 / 5 | 有限正数；压力轮换前退避，失败再退避一次；普通轮换失败复检旧出口通过后短等 |
+| `http_429_ratio` | 0.15 | 有限数 `(0,1]`；本端口本批实际 429 / HTTP 请求数达到阈值即压力；访问失败也形成压力 |
+
+配置示例（不包含秘密）：
+
+```json
+{"run_mode":"advanced","advanced_parameters":{"results_wanted":{"linkedin":25},"retrieval_concurrency":{"linkedin":2},"llm_rpm":20},"proxy":{"mode":"off","url":null}}
+```
+
+Mihomo 仅接管 LinkedIn，Indeed 独立直连；普通代理则两个平台同地址。App 仅提取具体 `proxies`，不复制用户 rules/providers/groups/tun/系统代理配置；节点须可独立拨号，不支持 `dialer-proxy` 依赖用户组或 DIRECT 等伪节点。临时组/HTTP listeners 绑定 127.0.0.1，默认规则 REJECT；控制密钥随机产生，目录 0700、临时配置 0600，不写 SQLite/快照/诊断。用户原配置不修改。控制与出口检测忽略环境代理；出口检测只能通过对应 listener，接受公网 IPv4。HTTPS 延迟 URL 为 gstatic generate_204，出口检测 URL 为 api.ipify.org，属于检测实现常量，不新增网络请求编辑器。
+
+成功 query 即使底层收到后恢复了 429 也不重跑；`http_requests/http_429` 累计每次尝试的真实 HTTP 调用。端口在途任务全部耗尽再切换，其他端口继续执行。失败候选恢复旧节点；普通轮换允许验证旧出口后短等复用，压力轮换禁止保留旧出口。两次压力轮换失败则停用端口，未领取任务留在共享待执行队列供其他端口使用；全部停用时剩余任务 failed/PROXY_ERROR、尝试数为 0，已提交结果保留。`runs.detail.stats.proxy`（run.stats 同步）返回 `rotations/candidate_failures/retained/pressure_events/disabled_ports`，只含计数，不含节点/出口/凭据；这组计数描述本次 start/resume，任务尝试历史仍累计。
+
+Mihomo 与抓取协调器退出后才结束本轮；Stop 保留已发出成功评分并等待抓取有界退出。内核由本次创建的 owner 进程持有，通过管道 EOF 处理 service 意外消失，结束并回收自己的内核、删除专用目录；不读旧 PID、不扫描/终止用户实例。Electron 原有进程组强制退出仍有效；极端进程组硬杀留下的 App tmp 由下次持锁启动清理。关闭窗口不触发上述退出。
+
+M8/M9 交接：通过原 `settings.get/save` 白名单选择这些非秘密字段即可，不复制校验/存储；调用 `runs.preview` 核对有效参数。抓取配置工具可映射 `run_mode`、`advanced_parameters`，若开放代理管理则显式白名单 `proxy` 和 `mihomo` 的上述字段；不要直接返回整个 settings。模型 Key、普通代理认证、节点内容、控制密钥不在此接口内。文件路径只作本机配置，不返回文件内容。此处定义字段，不实现或替另一 Session 决定 MCP 工具范围。

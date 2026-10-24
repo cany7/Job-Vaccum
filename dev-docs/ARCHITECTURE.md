@@ -136,3 +136,8 @@ Shortlist 的 Remove 删除清单关系，显示勾选数，不弹确认，右�
 M0 必须做最小 arm64 安装包：在不依赖项目 .venv、shell PATH 或用户 Python 的条件下启动 Python，导入锁定提交的 JobSpy 和 curl_cffi，确认所需原生库可加载，完成协议握手及临时数据库读写。不能等全部 UI 做完才验证 Python 能否随包工作。
 
 正式发行再补签名、公证、许可声明和卸载说明。若缺少签名凭据，可交付明确标记的本机测试包，不宣称已完成公开发行。公开包采用文件白名单，禁止把整个私人仓库作为打包输入。
+
+
+### M6 后端进程细化（2026-10-24）
+
+Mihomo 由 service 本次创建的 owner 进程持有；owner 管道 EOF（包括 service 硬退出）触发内核终止/回收及专用目录删除，不保存 PID 或连接其他实例。Mihomo/抓取协调器不访问 SQLite，所有结果仍回到 service 串行提交。YAML 节点读取使用锁定的 PyYAML；不复制用户配置的 provider、规则、系统代理或 TUN 设置。M6 的有效运行参数、端口批次及 M9 字段交接详见 CONTRACTS M6。

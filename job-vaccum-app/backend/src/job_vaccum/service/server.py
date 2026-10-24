@@ -46,7 +46,7 @@ def diagnostics(connection: sqlite3.Connection) -> dict:
 
 
 class Service:
-    def __init__(self, connection, root, *, clock=now_ms, enable_dev=False, inbox=None, attempt=None, llm_options=None):
+    def __init__(self, connection, root, *, clock=now_ms, enable_dev=False, inbox=None, attempt=None, llm_options=None, retrieval_options=None):
         self.repo = Repository(connection, clock)
         self.root = root
         self.cleanup = Cleanup(self.repo, root)
@@ -54,8 +54,9 @@ class Service:
         self.operations = {}
         self.inbox = inbox if inbox is not None else queue.Queue()
         self.llm = LlmPool(self.inbox, **(llm_options or {}))
+        self.llm.runtime_overrides = llm_options or {}
         self.model_operations = {}
-        self.runs = Runs(self.repo, self.inbox, llm=self.llm, **({"attempt": attempt} if attempt else {}))
+        self.runs = Runs(self.repo, self.inbox, llm=self.llm, root=root, retrieval_options=retrieval_options, **({"attempt": attempt} if attempt else {}))
 
         self.schedules = Schedules(self.repo, self.runs)
 
@@ -135,7 +136,9 @@ class Service:
                 raise CommandError('Configure a model and save an API key before testing.')
             operation_id, cancel = str(uuid4()), threading.Event()
             self.model_operations[operation_id] = {'kind': 'model_test', 'cancel': cancel}
-            self.llm.submit(operation_id, model, self.runs.model_key, '', 'Reply with OK.', lambda text: {'connected': True}, cancel)
+            parameters = self.runs.llm_parameters()
+            self.llm.configure(parameters)
+            self.llm.submit(operation_id, model, self.runs.model_key, '', 'Reply with OK.', lambda text: {'connected': True}, cancel, parameters)
             return {'operation_id': operation_id}
         if method == 'operations.cancel':
             fields(params, {'operation_id'}, {'operation_id'})
@@ -193,8 +196,10 @@ class Service:
         system, prompt = generation_request(kind, user_input, settings, saved['content'])
         operation_id, cancel = str(uuid4()), threading.Event()
         self.model_operations[operation_id] = {'kind': 'draft_generate', 'draft_kind': kind, 'cancel': cancel}
+        parameters = self.runs.llm_parameters()
+        self.llm.configure(parameters)
         self.llm.submit(operation_id, model, self.runs.model_key, system, prompt,
-                        lambda text: parse_generated(kind, text, user_input=user_input), cancel)
+                        lambda text: parse_generated(kind, text, user_input=user_input), cancel, parameters)
         return {'operation_id': operation_id}
 
     def handle_llm(self, kind, payload, event):
@@ -302,7 +307,7 @@ def serve(root: Path, source: BinaryIO, destination: BinaryIO, *, clock=now_ms, 
                 if kind in ('llm_attempt', 'llm_result'):
                     service.handle_llm(kind, payload, event)
                     continue
-                if kind in ('retrieval_attempt', 'retrieval_result'):
+                if kind in ('retrieval_started', 'retrieval_attempt', 'retrieval_result', 'retrieval_done'):
                     service.runs.handle(kind, payload, event)
                     continue
                 if kind == "export":

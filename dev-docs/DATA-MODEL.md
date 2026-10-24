@@ -125,3 +125,7 @@ M2 内容匹配使用现有 sources_json 中后来补入的有效 direct_url 参
 schema 5 建立 schedules / schedule_firings，保留既有岗位、配置、运行及 trigger_json。额外 partial unique indexes 保证每个计划至多一个 waiting 和一个 not_run。触发登记、创建 run/tasks、更新 firing.run_id 与一次性计划关闭在同一事务提交。
 
 checked_at 是每个计划的检查水位，由 main 时钟调用 service 更新；新建/保存从保存时刻起计算，时钟倒退不降低水位。保留该水位可使已合并、手动删除或过期清理的触发也不会被旧定时通知重放。它不是额外运行快照或独立恢复表。
+
+## M6 无迁移配置补充
+
+沿用 settings 分 key 保存 `run_mode`、`advanced_parameters`、`mihomo`，proxy.mode 增加 mihomo。运行快照保存非秘密配置及实际 parameters；用户内核/节点文件路径可入快照，节点内容、认证代理 URL、随机 controller secret 不入库。Resume 保持原路径及参数，从同一路径重新读取当前用户节点/凭据；不保存节点文件副本用于恢复。代理轮换诊断只在 runs.stats_json 的 proxy 子对象保存本次尝试的计数，无节点表、端口表或 PID 恢复记录。

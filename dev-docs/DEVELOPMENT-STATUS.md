@@ -1,6 +1,53 @@
 # 开发状态
 
-最新状态：2026-10-23 已补充 M8/M9 MCP 开发设计，尚未实现这两个阶段。本次对 codex/dev 既有 M4、M7 后端/main、M5 Python 草稿生成提交统一验证：**265 项后端、22 项 Node、9 项 Electron 测试通过**，类型检查与构建通过。M5 Electron generate 桥接与 renderer、M7 计划配置界面、M6、完整引导/Skip、打包和签名仍需各自后续交付。
+最新状态：2026-10-24 本工作区已完成 **M6 后端高级参数与 Mihomo**，306 项后端、22 项 Node、9 项 Electron smoke/M7 测试通过，arm64 冻结后端和假内核协议验证通过。M6 React 页面、真实 Mihomo/节点及完整安装包验证未完成；M5/M7 既有 UI 和发行待办保留。另一 Session 的 M8/M9 工作不由本记录推断或覆盖。
+
+
+## M6 后端：高级参数与 Mihomo（2026-10-24，Codex）
+
+### 工作区与范围
+
+用户授权仅完成 M6 后台、必要桥接/类型、文档、模拟验证和本地提交，不做 React 页面或 MCP，不 push/PR/合并 main。指定工作区 `job-vaccum-gui-claude` 开工干净；发现当前为 `claude/dev-env`、`codex/dev` 在另一个工作区使用后，用户明确选择沿用指定目录的 `claude/dev-env`。`git fetch origin` 后 `git merge origin/main` 返回 Already up to date（8bec590）。未修改另一个 worktree、未调用其他 Agent、未读取原项目私人配置或复制另一 Session 未提交内容。
+
+按 README 顺序阅读产品/工程契约及状态，重点 PIPELINE §7；为交接额外核对 M8-M9-MCP 的现有配置白名单边界。Mihomo listener/controller 字段查阅官方文档，行为按本项目 PIPELINE 独立实现；未声称与不可访问的私人实现逐行兼容。
+
+### 实际交付
+
+- settings 新增 `run_mode`、`advanced_parameters`、`mihomo`；嵌套参数及平台对象支持省略保留、校验失败整笔不写。默认参数固定，高级直连无需 Mihomo；普通代理两平台同地址；Mihomo 只代理 LinkedIn，Indeed 直连。有效参数写入 pipeline/rescore 快照，历史及 Resume 不受后续设置影响。
+- 抓取目标、时间范围、每平台并发、整次尝试超时、重试次数/退避真实进入抓取；评分多任务派发和所有 LLM 入口共用并发/RPM，实际 connect/read timeout 和有限重试使用捕获参数。无新表、迁移、通用 schema 或结果缓存。
+- App 专用 Mihomo：读取用户具体节点 YAML、内核/文件/端口检查、`-t` 校验、独立随机密钥 controller、专用 select 组及 HTTP listeners；只监听 loopback，不改系统代理或用户文件，不导入订阅/provider-only。临时目录 0700、配置 0600；节点/控制秘密不进入 SQLite、协议及日志。
+- 候选打乱、检测中节点预留、两次 HTTPS 延迟检查、实际公网 IPv4 检测、活动出口去重、冷却；每端口完整批次在途耗尽后轮换，普通失败复检旧出口并短等，压力时两次有限退避/轮换且禁止保留旧出口。停用端口留下未领取任务给健康端口；全停用保留部分结果、未执行任务 failed/PROXY_ERROR，不静默直连。
+- 正常 Stop 保存已发出成功评分；任务/内核清理完成前保持活跃。内核的 owner 通过管道 EOF 回收自己创建的进程，覆盖 service 被 SIGKILL；Python 退出期限及 Electron 原有进程组退出仍有效，窗口关闭和计划队列语义保留。
+- shared/runs.ts、CONTRACTS、PIPELINE、DATA-MODEL、ACCEPTANCE 和两端 README 已同步；M9 使用原 settings.get/save 明确白名单及 runs.preview，不复制校验或读取秘密。仅新增 YAML 所需 PyYAML 6.0.3 与 lock 条目，既有依赖版本及 JobSpy 完整 SHA 未改变。
+
+### 实际验证
+
+环境：macOS 27.0.1（26A434）arm64；Python 3.13.12 / SQLite 3.54.0 / uv 0.13.5；Node 26.12.1 / npm 11.20.0 / Electron 44.9.0；PyInstaller 6.22.3 / PyYAML 6.0.3。后端命令在 `job-vaccum-app/backend`，桌面命令在 `job-vaccum-app/desktop` 执行。
+
+| 命令/检查 | 实际结果 |
+| --- | --- |
+| `git fetch origin`、`git merge origin/main` | 同步完成，Already up to date；没有合并本地 main 分支或远端交付 |
+| backend `uv add 'PyYAML>=6.0.3,<7'` | 声明/lock 同步；只新增 PyYAML 6.0.3，原有版本不变 |
+| backend `uv run --locked pytest -q` | **306 passed / 78.90s**（含 M6 41 项及既有 265 项） |
+| backend `uv run --locked pytest -q tests/test_mihomo.py` | 最终 **41 passed / 2.75s**；含假内核 helper 更新后的复验 |
+| desktop `npm test` | 类型检查及生产构建通过；**22 Node tests passed / 23.54s** |
+| desktop `npx --no-install playwright test --grep '@smoke\|M7'` | **9 passed / 24.5s**；真实 Electron/service、无窗口计划、隐藏图标、Quit/后台退出 |
+| backend `uv run --locked pyinstaller ../packaging/backend.spec --noconfirm --distpath ../dist/backend --workpath ../build/backend` | arm64 onedir 构建通过；既有可选 jinja2/Windows DLL 警告，不新增无关依赖 |
+| backend `uv run --locked python tests/mihomo_service_smoke.py ../dist/backend/job-vaccum-service/job-vaccum-service` | **PASS**：cwd=/、受限 PATH 的冻结后端；JobSpy/curl 离线导入、YAML、真实协议、spawn owner/假 controller、本地出口拒绝、零抓取尝试、无直连回退、tmp 清空、EOF 退出 |
+| `git diff --check` | 通过 |
+
+测试只用合成岗位/配置、FakeController、假公网 IPv4、可注入时钟、fake scraper/LLM、loopback HTTP 及本地假可执行内核。真实 spawn worker 经锁定 JobSpy RequestsRotating 和 curl_cffi 向本地服务发送 429/200，验证 3 次实际 HTTP、1 次 429、成功 query 仅一次尝试。冻结 smoke 的假 proxy 直接返回 502，不向公网转发，不执行 JobSpy 抓取。
+
+开发过程修正了 TIME_WAIT 被误判为端口占用（复用已关闭连接，仍拒绝活动 listener），以及慢 RPM 切换必须从最近实际起始时间重新计算间隔。首轮专项测试中的 loopback 测试权限和 schedule 测试时刻问题已修正，最终上述验证全通过。曾从仓库根误执行 pytest，未进入 Python 工程而报找不到 pytest；改在 backend 使用 uv run --locked，未安装全局依赖。
+
+### 未完成验证与交接
+
+- **真实 Mihomo 未验证**：未提供真实内核及授权测试节点；未运行用户现有代理、读取私人节点/凭据、访问招聘网站或付费模型。假控制/出口与假内核验证不代表真实代理连通性。
+- 本次冻结后端验证不是完整 `.app`/DMG 安装验收；未做新安装副本、第二台 Mac、签名/公证或公开发布。M6 React 参数页面尚未开发，既有 M5 引导/Skip、M7 计划页面等待办不由本次完成。
+- M8/M9 读取/修改交接见 CONTRACTS「M6 后端配置与执行」：`run_mode`、`advanced_parameters`、`proxy`、`mihomo` 均有字段定义；敏感内容保持私有。MCP 实现及最终工具白名单由另一 Session 负责，本次未猜测/合入对方代码。
+- 已有端口占用明确报错；不会扫描遗留 PID。极端进程组硬杀留下的 App tmp 在下次持锁启动清理。真实网络远端成功、本地未提交的中断窗口仍可能重发，不承诺远端 exactly-once。
+- 仅本地提交到用户指定的 `claude/dev-env`，未 push、创建 PR、修改远端保护或合并 main。
+
 
 ## M8/M9 规划与既有 Codex 提交的交付验证（2026-10-23，Codex）
 

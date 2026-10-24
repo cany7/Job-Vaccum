@@ -189,3 +189,14 @@ terminates that group's owned scrape children. There is no service auto-restart.
 This step does not add Runs, batch filter controls, manual search settings or
 scoring UI to the renderer. Scoring execution remains M3; auto_score_enabled=false
 allows retrieval to finish without a model. Tests use synthetic data only.
+
+### M6 shared configuration handoff
+
+`shared/runs.ts` now describes `run_mode`, nested `advanced_parameters` patches,
+`mihomo` paths/scheduling parameters, `proxy.mode="mihomo"`, effective parameter
+snapshots and aggregate proxy diagnostics. Existing `getSettings/saveSettings`
+and run methods carry them without new IPC or renderer controls. Mihomo creates
+its own controller secret in the backend; it does not need another credential
+API. Ordinary proxy credentials retain the existing safeStorage bridge. See
+[CONTRACTS M6](../../dev-docs/CONTRACTS.md#m6-后端配置与执行2026-10-24)
+before adding a settings page or an explicit MCP configuration whitelist.
