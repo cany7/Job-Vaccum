@@ -9,6 +9,8 @@ const id = z.string().trim().min(1);
 const strings = z.array(id);
 const status = z.enum(['new', 'applied', 'oa', 'interviewing', 'offer', 'rejected', 'ghosted']);
 const timestamp = z.number().int().nonnegative();
+const timestampFrom = timestamp.describe('Inclusive lower bound: Unix timestamp in milliseconds (UTC).');
+const timestampTo = timestamp.describe('Exclusive upper bound: Unix timestamp in milliseconds (UTC).');
 const optionalText = z.string().nullable().optional();
 const content = {
   title: id.optional(), company: optionalText, location: optionalText, job_type: optionalText,
@@ -19,8 +21,9 @@ const filters = {
   companies: strings.optional(), locations: strings.optional(), job_types: strings.optional(), run_ids: strings.optional(),
   score_min: z.number().int().min(0).max(10).optional(), score_max: z.number().int().min(0).max(10).optional(),
   score_states: z.array(z.enum(['unscored', 'pending', 'running', 'succeeded', 'failed'])).optional(),
-  first_seen_from: timestamp.optional(), first_seen_to: timestamp.optional(),
-  date_posted_from: z.string().optional(), date_posted_to: z.string().optional(), date_posted_unknown: z.boolean().optional(),
+  first_seen_from: timestampFrom.optional(), first_seen_to: timestampTo.optional(),
+  date_posted_from: z.string().describe('Inclusive lower date in YYYY-MM-DD format.').optional(),
+  date_posted_to: z.string().describe('Exclusive upper date in YYYY-MM-DD format.').optional(), date_posted_unknown: z.boolean().optional(),
   salary_presence: z.enum(['known', 'unknown']).optional(), salary_min: z.number().nonnegative().optional(),
   salary_max: z.number().nonnegative().optional(), salary_currency: id.optional(), salary_interval: id.optional(),
   sort: id.optional(), page: z.number().int().min(1).max(2147483647).optional(),
@@ -54,8 +57,8 @@ export function createMcpServer(call: BusinessCall) {
   tool('list_jobs', 'Filter retained Discover jobs. Summary defaults/max 50; view=ids defaults/max 200; collect all pages of IDs before writing.',
     { ...filters, in_applications: z.boolean().optional() }, 'jobs.query', true, p => ({ ...p, scope: 'discover' }));
   tool('list_shortlist', 'Filter Shortlist including manual jobs. Summary defaults/max 50 with full notes/reasons; IDs defaults/max 200; JD requires get_job.',
-    { ...filters, application_statuses: z.array(status).optional(), added_from: timestamp.optional(), added_to: timestamp.optional(),
-      updated_from: timestamp.optional(), updated_to: timestamp.optional() }, 'jobs.query', true, p => ({ ...p, scope: 'applications' }));
+    { ...filters, application_statuses: z.array(status).optional(), added_from: timestampFrom.optional(), added_to: timestampTo.optional(),
+      updated_from: timestampFrom.optional(), updated_to: timestampTo.optional() }, 'jobs.query', true, p => ({ ...p, scope: 'applications' }));
   tool('get_job', 'Read one full job, including JD, sources, links, scoring and Shortlist management fields.', { job_id: id }, 'jobs.detail', true);
   tool('add_to_shortlist', 'Add 1–200 distinct job IDs. Existing status, notes and added time are preserved; missing IDs have individual outcomes.',
     { job_ids: batch }, 'applications.add_many', false);
@@ -76,7 +79,7 @@ export function createMcpServer(call: BusinessCall) {
   tool('list_runs', 'Page through retained pipeline and rescore summaries, newest first; defaults/max 50, with counts and progress but no diagnostics.',
     { page: filters.page, page_size: z.number().int().min(1).max(50).optional(), kind: z.enum(['pipeline', 'rescore']).optional(),
       statuses: z.array(z.enum(['running', 'stopping', 'succeeded', 'partial', 'failed', 'stopped', 'interrupted'])).optional(),
-      created_from: timestamp.optional(), created_to: timestamp.optional(), schedule_id: id.optional() }, 'runs.summaries', true);
+      created_from: timestampFrom.optional(), created_to: timestampTo.optional(), schedule_id: id.optional() }, 'runs.summaries', true);
   tool('get_run', 'Read a retained Run status and task/business counts without tasks, jobs, snapshots or diagnostics.', { run_id: id }, 'runs.summary', true);
   tool('get_app_status', 'Read service availability, busy state and active Run/operation summaries; never returns credentials or input text.', {}, 'app.status', true);
   return server;

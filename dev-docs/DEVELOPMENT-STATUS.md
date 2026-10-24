@@ -2,6 +2,14 @@
 
 最新状态：2026-10-24 M8 后端与 Electron main 本机 MCP 的15个工具已完成并通过真实协议客户端联调；只交付 M8，M9 与 React 页面未实施。后端全量276项及最终相关99项、Node23项、相关Electron11个场景（分轮修正旧schema断言后）通过；未执行本轮安装包/签名验收，M6新参数留合并联调。
 
+## M8 审阅修正与推送交付（2026-10-24，Codex）
+
+用户授权审阅 M8 后推送；M6 分支与 M9 不在本轮范围。审阅发现 MCP 的日期筛选输入缺少单位和边界说明，Agent 可能将 Unix 秒数当作毫秒传入而获得错误筛选结果。为 jobs、Shortlist、runs 的日期参数补充 UTC Unix 毫秒或 YYYY-MM-DD 格式，以及下界包含、上界不包含的工具 schema 描述；不改变校验、查询语义或分页规则。
+
+沿用上节合成数据与 fake I/O 验证环境。审阅时相关后端测试（test_m8、test_pipeline、test_business_protocol、test_schedules）**99 passed / 1.20s**，desktop `npm test` 构建与 **23 Node tests passed / 23.64s**，MCP E2E **2 passed / 3.7s**。描述修正后 `npm run build` 通过，`npx --no-install playwright test tests/e2e/mcp.spec.cjs` **2 passed / 3.9s**；另经官方 SDK 实际读取 tools/list，确认三个列表工具的全部14个日期筛选字段均带格式/单位与区间边界。`git diff --check` 通过。
+
+推送前 fetch/merge origin/main；已确认 main 强制要求 Backend、Frontend、Desktop E2E 且禁止管理员绕过。按仓库流程创建 PR 并开启自动合并；远端检查、合并及 main CI 的最终结果以对应 GitHub 交付记录为准。未新增测试框架、改动其他 worktree 或执行安装包验收。此前“仅本地提交”描述保留为当时记录。
+
 ## M8 Electron MCP 完整交付（2026-10-24，Codex）
 
 在同轮后端提交 b8d3691 上完成 main 共用调用入口、MCP 服务与真实链路验证。沿用当前 codex/dev；仅本地提交，不 push、创建 PR、合并 main 或修改另一 worktree。未新增 React 页面、用户 Skills、Sheets、投递动作、Run 启停工具、删除工具或 M9 配置工具。
