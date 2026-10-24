@@ -343,3 +343,12 @@ Mihomo 仅接管 LinkedIn，Indeed 独立直连；普通代理则两个平台同
 Mihomo 与抓取协调器退出后才结束本轮；Stop 保留已发出成功评分并等待抓取有界退出。内核由本次创建的 owner 进程持有，通过管道 EOF 处理 service 意外消失，结束并回收自己的内核、删除专用目录；不读旧 PID、不扫描/终止用户实例。Electron 原有进程组强制退出仍有效；极端进程组硬杀留下的 App tmp 由下次持锁启动清理。关闭窗口不触发上述退出。
 
 M8/M9 交接：通过原 `settings.get/save` 白名单选择这些非秘密字段即可，不复制校验/存储；调用 `runs.preview` 核对有效参数。抓取配置工具可映射 `run_mode`、`advanced_parameters`，若开放代理管理则显式白名单 `proxy` 和 `mihomo` 的上述字段；不要直接返回整个 settings。模型 Key、普通代理认证、节点内容、控制密钥不在此接口内。文件路径只作本机配置，不返回文件内容。此处定义字段，不实现或替另一 Session 决定 MCP 工具范围。
+
+### M6 后续调整的目标契约（2026-10-24）
+
+本节定义用户确认的后续接口与语义调整，不表示现有接口已经支持；实施状态见 DEVELOPMENT-STATUS。上述表格描述的现有接口保持可查，后续实现须同步修改表格、shared 类型和验收。
+
+- 新增 `mihomo.failed_node_cooldown_seconds`：默认 **60**，有限正数，单位秒；按失败候选节点暂避，与按出口 IP 冷却的 `cooldown_seconds=300` 独立。沿用 `settings.get/save` 的非秘密嵌套部分更新及原子校验；启动时进入 `config_snapshot.mihomo`，运行中修改不影响当前轮，Resume 使用原快照。旧设置/旧快照缺少该字段时补默认 60，不新增 schema 迁移。M8/M9 仅在后端落地后按明确白名单接入，不能提前向当前后端发送该字段。
+- Mihomo 的 `batch_size` 改为每端口每批领取的**任务尝试数**，包括首次尝试或归队重试；`max_attempts` 仍限制每个任务的总尝试数，不因换端口、换批次而重置。重试、部分结果、实际请求计数及 Stop/Resume 约束见 PIPELINE §7.1。全端口停用时，未尝试任务计数仍为 0；已尝试后归队的任务保留实际尝试数、统计及可提交部分结果。
+- 仅 Indeed 的运行不依赖 Mihomo 文件校验或启动；混合运行的代理失败只阻止对应 LinkedIn 路径，Indeed 独立执行。预览/开始/续跑的校验边界须与此一致，不能在全局预检阶段提前阻断 Indeed。
+- 切换 PUT 后确认 GET `now`；普通旧节点保留须补两次延迟复检，允许通过去重/冷却检查后的出口 IP 变化。出口检测增加固定备用服务 `https://ipv4.icanhazip.com`，仍只经指定 listener。检测地址不成为可编辑配置。具体流程见 PIPELINE §7.1。
